@@ -1,0 +1,19 @@
+{
+  "name": "tracing-claude-code",
+  "description": "Automatic tracing of Claude Code sessions to Arize AX or Phoenix with OpenInference spans. Supports 9 hooks for comprehensive observability.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Arize AI",
+    "email": "support@arize.com",
+    "url": "https://arize.com"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "tracing",
+    "observability",
+    "openinference",
+    "arize",
+    "phoenix",
+    "claude-code"
+  ]
+}

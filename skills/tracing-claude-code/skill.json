@@ -1,0 +1,91 @@
+{
+  "name": "tracing-claude-code",
+  "description": "Trace Claude Code sessions to Arize AX or Phoenix",
+  "version": "1.0.0",
+  "hooks": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "bash \"$SKILL_DIR/hooks/session_start.sh\""
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "type": "command",
+        "command": "bash \"$SKILL_DIR/hooks/user_prompt_submit.sh\""
+      }
+    ],
+    "PreToolUse": [
+      {
+        "type": "command",
+        "command": "bash \"$SKILL_DIR/hooks/pre_tool_use.sh\""
+      }
+    ],
+    "PostToolUse": [
+      {
+        "type": "command",
+        "command": "bash \"$SKILL_DIR/hooks/post_tool_use.sh\""
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "bash \"$SKILL_DIR/hooks/stop.sh\""
+      }
+    ],
+    "SubagentStop": [
+      {
+        "type": "command",
+        "command": "bash \"$SKILL_DIR/hooks/subagent_stop.sh\""
+      }
+    ],
+    "Notification": [
+      {
+        "type": "command",
+        "command": "bash \"$SKILL_DIR/hooks/notification.sh\""
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "type": "command",
+        "command": "bash \"$SKILL_DIR/hooks/permission_request.sh\""
+      }
+    ],
+    "SessionEnd": [
+      {
+        "type": "command",
+        "command": "bash \"$SKILL_DIR/hooks/session_end.sh\""
+      }
+    ]
+  },
+  "env": {
+    "ARIZE_API_KEY": {
+      "description": "Arize AX API key (required for Arize AX)",
+      "required": false
+    },
+    "ARIZE_SPACE_ID": {
+      "description": "Arize AX space ID (required for Arize AX)",
+      "required": false
+    },
+    "PHOENIX_ENDPOINT": {
+      "description": "Phoenix collector URL (required for Phoenix, e.g., http://localhost:6006)",
+      "required": false
+    },
+    "ARIZE_PROJECT_NAME": {
+      "description": "Project name (defaults to workspace name)",
+      "required": false
+    },
+    "ARIZE_TRACE_ENABLED": {
+      "description": "Enable/disable tracing (default: true)",
+      "required": false
+    },
+    "ARIZE_DRY_RUN": {
+      "description": "Print spans to terminal instead of sending (default: false)",
+      "required": false
+    },
+    "ARIZE_VERBOSE": {
+      "description": "Show verbose output (default: false)",
+      "required": false
+    }
+  }
+}
