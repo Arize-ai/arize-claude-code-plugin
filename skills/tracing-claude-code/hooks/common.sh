@@ -16,10 +16,12 @@ ARIZE_PROJECT_NAME="${ARIZE_PROJECT_NAME:-}"
 ARIZE_TRACE_ENABLED="${ARIZE_TRACE_ENABLED:-true}"
 ARIZE_DRY_RUN="${ARIZE_DRY_RUN:-false}"
 ARIZE_VERBOSE="${ARIZE_VERBOSE:-false}"
+ARIZE_LOG_FILE="${ARIZE_LOG_FILE:-/tmp/arize-claude-code.log}"
 
 # --- Logging ---
-log() { [[ "$ARIZE_VERBOSE" == "true" ]] && echo "[arize] $*" >&2 || true; }
-log_always() { echo "[arize] $*" >&2; }
+_log_to_file() { [[ -n "$ARIZE_LOG_FILE" ]] && echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$ARIZE_LOG_FILE" || true; }
+log() { [[ "$ARIZE_VERBOSE" == "true" ]] && { echo "[arize] $*" >&2; _log_to_file "$*"; } || true; }
+log_always() { echo "[arize] $*" >&2; _log_to_file "$*"; }
 error() { echo "[arize] ERROR: $*" >&2; }
 
 # --- Utilities ---
@@ -128,7 +130,8 @@ send_span() {
 # --- Build OTLP span ---
 build_span() {
   local name="$1" kind="$2" span_id="$3" trace_id="$4"
-  local parent="${5:-}" start="$6" end="${7:-$start}" attrs="${8:-{}}"
+  local parent="${5:-}" start="$6" end="${7:-$start}" attrs
+  attrs="${8:-"{}"}"
   
   local parent_json=""
   [[ -n "$parent" ]] && parent_json="\"parentSpanId\": \"$parent\","
