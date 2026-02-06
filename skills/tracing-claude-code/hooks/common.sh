@@ -128,7 +128,8 @@ send_span() {
 # --- Build OTLP span ---
 build_span() {
   local name="$1" kind="$2" span_id="$3" trace_id="$4"
-  local parent="${5:-}" start="$6" end="${7:-$start}" attrs="${8:-{}}"
+  local parent="${5:-}" start="$6" end="${7:-$start}" attrs
+  attrs="${8:-"{}"}"
   
   local parent_json=""
   [[ -n "$parent" ]] && parent_json="\"parentSpanId\": \"$parent\","

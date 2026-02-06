@@ -43,14 +43,11 @@ fi
 output=$(echo -e "$output" | head -c 2000)
 [[ -z "$output" ]] && output="(No response)"
 
-attrs=$(jq -n \
+attrs=$(jq -nc \
   --arg sid "$session_id" --arg num "$trace_count" --arg proj "$project_name" \
   --arg in "$user_prompt" --arg out "$output" --arg model "$model" \
   --argjson in_tok "$in_tokens" --argjson out_tok "$out_tokens" \
-  '{"session.id":$sid,"trace.number":$num,"project.name":$proj,
-    "openinference.span.kind":"chain","llm.model_name":$model,
-    "llm.token_count.prompt":$in_tok,"llm.token_count.completion":$out_tok,
-    "input.value":$in,"output.value":$out}')
+  '{"session.id":$sid,"trace.number":$num,"project.name":$proj,"openinference.span.kind":"chain","llm.model_name":$model,"llm.token_count.prompt":$in_tok,"llm.token_count.completion":$out_tok,"input.value":$in,"output.value":$out}')
 
 span=$(build_span "Trace #$trace_count" "CHAIN" "$trace_span_id" "$trace_id" "" "$trace_start_time" "$(get_timestamp_ms)" "$attrs")
 send_span "$span" || true
