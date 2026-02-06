@@ -80,7 +80,8 @@ Then configure:
 | `ARIZE_PROJECT_NAME` | No | workspace name | Project name in Arize/Phoenix |
 | `ARIZE_TRACE_ENABLED` | No | `true` | Enable/disable tracing |
 | `ARIZE_DRY_RUN` | No | `false` | Print spans instead of sending |
-| `ARIZE_VERBOSE` | No | `false` | Show verbose output |
+| `ARIZE_VERBOSE` | No | `false` | Enable verbose logging |
+| `ARIZE_LOG_FILE` | No | `/tmp/arize-claude-code.log` | Log file path (set empty to disable) |
 
 ## Usage
 
@@ -140,8 +141,19 @@ Install jq:
 
 1. Check `ARIZE_TRACE_ENABLED` is `true`
 2. Verify API key/endpoint is correct
-3. Run with `ARIZE_VERBOSE=true` to see what's happening
-4. Run with `ARIZE_DRY_RUN=true` to test locally
+3. Check the log file: `tail -f /tmp/arize-claude-code.log`
+4. Run with `ARIZE_VERBOSE=true` to enable verbose logging
+5. Run with `ARIZE_DRY_RUN=true` to test locally
+
+### Viewing hook logs
+
+Claude Code discards hook stderr, so verbose output isn't visible in the terminal. Logs are written to `/tmp/arize-claude-code.log` by default:
+
+```bash
+tail -f /tmp/arize-claude-code.log
+```
+
+To change the log location, set `ARIZE_LOG_FILE` in your settings. Set to empty string to disable file logging.
 
 ### Arize AX: "Python with opentelemetry not found"
 
