@@ -32,7 +32,7 @@ claude plugin install tracing-claude-code@arize-claude-plugin
 ### Option 2: Manual Installation
 
 ```bash
-git clone https://github.com/Arize-ai/arize-claude-plugin
+git clone https://github.com/Arize-ai/arize-claude-code-plugin
 cd arize-claude-plugin
 ./install.sh
 ```
