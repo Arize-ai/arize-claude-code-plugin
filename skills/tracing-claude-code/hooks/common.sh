@@ -37,26 +37,72 @@ get_timestamp_ms() {
 }
 
 # --- State ---
+LOCK_DIR="${STATE_DIR}/.lock"
+
 init_state() {
   mkdir -p "$STATE_DIR"
   [[ -f "$STATE_FILE" ]] || echo '{}' > "$STATE_FILE"
+  # Recover from corrupted state file
+  if ! jq empty "$STATE_FILE" 2>/dev/null; then
+    log "State file corrupted, resetting"
+    echo '{}' > "$STATE_FILE"
+  fi
+}
+
+_lock_state() {
+  local waited=0
+  while ! mkdir "$LOCK_DIR" 2>/dev/null; do
+    sleep 0.05
+    waited=$((waited + 1))
+    # After 3 seconds, assume stale lock and break it
+    if [[ $waited -ge 60 ]]; then
+      rm -rf "$LOCK_DIR"
+    fi
+  done
+}
+
+_unlock_state() {
+  rm -rf "$LOCK_DIR"
 }
 
 get_state() { jq -r ".[\"$1\"] // empty" "$STATE_FILE" 2>/dev/null || echo ""; }
 
 set_state() {
-  local tmp="${STATE_FILE}.tmp"
-  jq --arg k "$1" --arg v "$2" '.[$k] = $v' "$STATE_FILE" > "$tmp" && mv "$tmp" "$STATE_FILE"
+  _lock_state
+  local tmp
+  tmp=$(mktemp "${STATE_FILE}.XXXXXX")
+  if jq --arg k "$1" --arg v "$2" '.[$k] = $v' "$STATE_FILE" > "$tmp" 2>/dev/null; then
+    mv "$tmp" "$STATE_FILE"
+  else
+    rm -f "$tmp"
+  fi
+  _unlock_state
 }
 
 del_state() {
-  local tmp="${STATE_FILE}.tmp"
-  jq --arg k "$1" 'del(.[$k])' "$STATE_FILE" > "$tmp" && mv "$tmp" "$STATE_FILE"
+  _lock_state
+  local tmp
+  tmp=$(mktemp "${STATE_FILE}.XXXXXX")
+  if jq --arg k "$1" 'del(.[$k])' "$STATE_FILE" > "$tmp" 2>/dev/null; then
+    mv "$tmp" "$STATE_FILE"
+  else
+    rm -f "$tmp"
+  fi
+  _unlock_state
 }
 
 inc_state() {
-  local val=$(get_state "$1")
-  set_state "$1" "$((${val:-0} + 1))"
+  _lock_state
+  local val
+  val=$(jq -r ".[\"$1\"] // empty" "$STATE_FILE" 2>/dev/null || echo "")
+  local tmp
+  tmp=$(mktemp "${STATE_FILE}.XXXXXX")
+  if jq --arg k "$1" --arg v "$((${val:-0} + 1))" '.[$k] = $v' "$STATE_FILE" > "$tmp" 2>/dev/null; then
+    mv "$tmp" "$STATE_FILE"
+  else
+    rm -f "$tmp"
+  fi
+  _unlock_state
 }
 
 # --- Target Detection ---
