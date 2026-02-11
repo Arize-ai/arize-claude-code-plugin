@@ -16,8 +16,10 @@ span_id=$(generate_uuid | tr -d '-' | cut -c1-16)
 ts=$(get_timestamp_ms)
 parent=$(get_state "current_trace_span_id")
 
-attrs=$(jq -n --arg perm "$permission" --arg tool "$tool" \
-  '{"openinference.span.kind":"chain","permission.type":$perm,"permission.tool":$tool}')
+session_id=$(get_state "session_id")
+
+attrs=$(jq -n --arg sid "$session_id" --arg perm "$permission" --arg tool "$tool" \
+  '{"session.id":$sid,"openinference.span.kind":"chain","permission.type":$perm,"permission.tool":$tool}')
 
 span=$(build_span "Permission Request" "CHAIN" "$span_id" "$trace_id" "$parent" "$ts" "$ts" "$attrs")
 send_span "$span" || true
