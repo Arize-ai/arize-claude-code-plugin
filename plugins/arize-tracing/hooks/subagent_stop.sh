@@ -3,14 +3,15 @@
 source "$(dirname "$0")/common.sh"
 check_requirements
 
-input=$(cat)
+input=$(cat 2>/dev/null || echo '{}')
+[[ -z "$input" ]] && input='{}'
 
 trace_id=$(get_state "current_trace_id")
 [[ -z "$trace_id" ]] && exit 0
 
 session_id=$(get_state "session_id")
-agent_id=$(echo "$input" | jq -r '.agent_id // empty')
-agent_type=$(echo "$input" | jq -r '.agent_type // "unknown"')
+agent_id=$(echo "$input" | jq -r '.agent_id // empty' 2>/dev/null || echo "")
+agent_type=$(echo "$input" | jq -r '.agent_type // "unknown"' 2>/dev/null || echo "unknown")
 
 span_id=$(generate_uuid | tr -d '-' | cut -c1-16)
 ts=$(get_timestamp_ms)

@@ -3,7 +3,8 @@
 source "$(dirname "$0")/common.sh"
 check_requirements
 
-input=$(cat)
+input=$(cat 2>/dev/null || echo '{}')
+[[ -z "$input" ]] && input='{}'
 
 session_id=$(get_state "session_id")
 [[ -z "$session_id" ]] && exit 0
@@ -12,10 +13,10 @@ trace_id=$(get_state "current_trace_id")
 parent_span_id=$(get_state "current_trace_span_id")
 inc_state "tool_count"
 
-tool_name=$(echo "$input" | jq -r '.tool_name // "unknown"')
-tool_id=$(echo "$input" | jq -r '.tool_use_id // empty')
-tool_input=$(echo "$input" | jq -c '.tool_input // {}' | head -c 1000)
-tool_output=$(echo "$input" | jq -r '.tool_output // empty' | head -c 1000)
+tool_name=$(echo "$input" | jq -r '.tool_name // "unknown"' 2>/dev/null || echo "unknown")
+tool_id=$(echo "$input" | jq -r '.tool_use_id // empty' 2>/dev/null || echo "")
+tool_input=$(echo "$input" | jq -c '.tool_input // {}' 2>/dev/null | head -c 1000)
+tool_output=$(echo "$input" | jq -r '.tool_output // empty' 2>/dev/null | head -c 1000)
 
 start_time=$(get_state "tool_${tool_id}_start")
 [[ -z "$start_time" ]] && start_time=$(get_timestamp_ms)

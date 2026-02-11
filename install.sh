@@ -23,12 +23,13 @@ check_requirements() {
 
 install_hooks() {
   mkdir -p "$HOOKS_DIR"
+  mkdir -p "${CLAUDE_DIR}/scripts"
 
   # Copy all hook scripts
   cp "$SOURCE_HOOKS"/*.sh "$HOOKS_DIR/"
-  cp "${PLUGIN_DIR}/scripts/send_span.py" "$HOOKS_DIR/send_span.py"
+  cp "${PLUGIN_DIR}/scripts/send_span.py" "${CLAUDE_DIR}/scripts/send_span.py"
   chmod +x "$HOOKS_DIR"/*.sh
-  chmod +x "$HOOKS_DIR/send_span.py"
+  chmod +x "${CLAUDE_DIR}/scripts/send_span.py"
 
   success "Hooks installed to $HOOKS_DIR"
 }
@@ -72,7 +73,7 @@ print_config() {
 
 uninstall() {
   log "Uninstalling..."
-  rm -f "$HOOKS_DIR"/{session_start,session_end,user_prompt_submit,pre_tool_use,post_tool_use,stop,subagent_stop,notification,permission_request,common}.sh "$HOOKS_DIR/send_span.py"
+  rm -f "$HOOKS_DIR"/{session_start,session_end,user_prompt_submit,pre_tool_use,post_tool_use,stop,subagent_stop,notification,permission_request,common}.sh "${CLAUDE_DIR}/scripts/send_span.py"
   [[ -f "$SETTINGS_FILE" ]] && jq 'del(.hooks)' "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp" && mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"
   rm -rf "${HOME}/.arize-claude-code"
   success "Uninstalled"

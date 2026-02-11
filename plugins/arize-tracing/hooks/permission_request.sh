@@ -3,13 +3,14 @@
 source "$(dirname "$0")/common.sh"
 check_requirements
 
-input=$(cat)
+input=$(cat 2>/dev/null || echo '{}')
+[[ -z "$input" ]] && input='{}'
 
 trace_id=$(get_state "current_trace_id")
 [[ -z "$trace_id" ]] && exit 0
 
-permission=$(echo "$input" | jq -r '.permission // empty')
-tool=$(echo "$input" | jq -r '.tool_name // empty')
+permission=$(echo "$input" | jq -r '.permission // empty' 2>/dev/null || echo "")
+tool=$(echo "$input" | jq -r '.tool_name // empty' 2>/dev/null || echo "")
 
 span_id=$(generate_uuid | tr -d '-' | cut -c1-16)
 ts=$(get_timestamp_ms)

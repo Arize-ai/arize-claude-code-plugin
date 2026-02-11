@@ -3,7 +3,8 @@
 source "$(dirname "$0")/common.sh"
 check_requirements
 
-input=$(cat)
+input=$(cat 2>/dev/null || echo '{}')
+[[ -z "$input" ]] && input='{}'
 
 session_id=$(get_state "session_id")
 trace_id=$(get_state "current_trace_id")
@@ -16,7 +17,7 @@ project_name=$(get_state "project_name")
 trace_count=$(get_state "trace_count")
 
 # Parse transcript for AI response and tokens
-transcript=$(echo "$input" | jq -r '.transcript_path // empty')
+transcript=$(echo "$input" | jq -r '.transcript_path // empty' 2>/dev/null || echo "")
 output="" model="" in_tokens=0 out_tokens=0
 
 if [[ -f "$transcript" ]]; then

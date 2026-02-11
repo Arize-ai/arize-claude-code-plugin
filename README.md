@@ -125,6 +125,14 @@ ARIZE_VERBOSE=true claude
 
 ## Uninstall
 
+**Plugin marketplace:**
+
+```bash
+/plugin uninstall arize-tracing@arize-plugins
+```
+
+**Manual install:**
+
 ```bash
 ./install.sh uninstall
 ```

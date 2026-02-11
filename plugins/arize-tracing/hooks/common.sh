@@ -7,7 +7,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"
 STATE_DIR="${HOME}/.arize-claude-code"
-STATE_FILE="${STATE_DIR}/state.json"
 
 ARIZE_API_KEY="${ARIZE_API_KEY:-}"
 ARIZE_SPACE_ID="${ARIZE_SPACE_ID:-}"
@@ -36,26 +35,20 @@ get_timestamp_ms() {
     date +%s%3N 2>/dev/null || date +%s000
 }
 
-# --- State ---
+# --- State (per-key files to avoid concurrent write races) ---
 init_state() {
   mkdir -p "$STATE_DIR"
-  [[ -f "$STATE_FILE" ]] || echo '{}' > "$STATE_FILE"
 }
 
-get_state() { jq -r ".[\"$1\"] // empty" "$STATE_FILE" 2>/dev/null || echo ""; }
+get_state() { cat "${STATE_DIR}/$1" 2>/dev/null || echo ""; }
 
-set_state() {
-  local tmp="${STATE_FILE}.tmp"
-  jq --arg k "$1" --arg v "$2" '.[$k] = $v' "$STATE_FILE" > "$tmp" && mv "$tmp" "$STATE_FILE"
-}
+set_state() { echo "$2" > "${STATE_DIR}/$1"; }
 
-del_state() {
-  local tmp="${STATE_FILE}.tmp"
-  jq --arg k "$1" 'del(.[$k])' "$STATE_FILE" > "$tmp" && mv "$tmp" "$STATE_FILE"
-}
+del_state() { rm -f "${STATE_DIR}/$1"; }
 
 inc_state() {
-  local val=$(get_state "$1")
+  local val
+  val=$(get_state "$1")
   set_state "$1" "$((${val:-0} + 1))"
 }
 

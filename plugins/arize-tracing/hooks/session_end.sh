@@ -14,4 +14,4 @@ log_always "Session complete: ${trace_count:-0} traces, ${tool_count:-0} tools"
 log_always "View in Arize/Phoenix: session.id = $session_id"
 
 # Clean up state
-echo '{}' > "$STATE_FILE"
+rm -f "${STATE_DIR}"/* 2>/dev/null || true
