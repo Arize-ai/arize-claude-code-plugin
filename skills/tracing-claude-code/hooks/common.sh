@@ -189,7 +189,7 @@ build_span() {
   "traceId":"$trace_id","spanId":"$span_id",$parent_json
   "name":"$name","kind":1,
   "startTimeUnixNano":"${start}000000","endTimeUnixNano":"${end}000000",
-  "attributes":$(echo "$attrs" | jq -c '[to_entries[]|{"key":.key,"value":(if (.value|type)=="number" then {"intValue":.value} else {"stringValue":(.value|tostring)} end)}]'),
+  "attributes":$(echo "$attrs" | jq -c '[to_entries[]|{"key":.key,"value":(if (.value|type)=="number" then (if ((.value|floor) == .value) then {"intValue":.value} else {"doubleValue":.value} end) else {"stringValue":(.value|tostring)} end)}]'),
   "status":{"code":1}
 }]}]}]}
 EOF
