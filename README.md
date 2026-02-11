@@ -25,7 +25,7 @@ From within Claude Code:
 /plugin marketplace add Arize-ai/arize-claude-code-plugin
 
 # Install the tracing plugin
-/plugin install arize-tracing@arize-plugins
+/plugin install claude-code@arize-plugins
 ```
 
 Or browse and install interactively via `/plugin` > **Discover**.
@@ -128,7 +128,7 @@ ARIZE_VERBOSE=true claude
 **Plugin marketplace:**
 
 ```bash
-/plugin uninstall arize-tracing@arize-plugins
+/plugin uninstall claude-code@arize-plugins
 ```
 
 **Manual install:**
