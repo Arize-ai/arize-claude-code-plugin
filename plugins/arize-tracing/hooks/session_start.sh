@@ -22,4 +22,4 @@ set_state "project_name" "$project_name"
 set_state "trace_count" "0"
 set_state "tool_count" "0"
 
-log_always "Session started: $session_id"
+log "Session started: $session_id"

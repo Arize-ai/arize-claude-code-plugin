@@ -27,39 +27,59 @@ parent=$(get_state "current_trace_span_id")
 transcript_path=$(echo "$input" | jq -r '.agent_transcript_path // empty' 2>/dev/null || echo "")
 subagent_output=""
 start_time=""
+model="" in_tokens=0 out_tokens=0
 
 if [[ -n "$transcript_path" && -f "$transcript_path" ]]; then
-  # Use file birth time (macOS) or mtime (Linux) for start estimate
+  # Use file birth time (creation time) for start estimate
   if stat -f %B "$transcript_path" &>/dev/null; then
+    # macOS: %B = birth time
     file_time_s=$(stat -f %B "$transcript_path")
     start_time=$((file_time_s * 1000))
   elif stat -c %W "$transcript_path" &>/dev/null; then
+    # Linux: %W = birth time (may be 0 if unsupported)
     file_time_s=$(stat -c %W "$transcript_path")
-    # %W returns 0 if birth time unavailable, fall back to mtime
-    if [[ "$file_time_s" == "0" ]]; then
-      file_time_s=$(stat -c %Y "$transcript_path")
+    if [[ "$file_time_s" =~ ^[0-9]+$ && "$file_time_s" -gt 0 ]]; then
+      start_time=$((file_time_s * 1000))
     fi
-    start_time=$((file_time_s * 1000))
   fi
 
-  # Extract last assistant message as subagent output
-  subagent_output=$(tail -20 "$transcript_path" | while IFS= read -r line; do
-    type=$(echo "$line" | jq -r '.type' 2>/dev/null)
-    if [[ "$type" == "assistant" ]]; then
-      echo "$line" | jq -r '.message.content | if type=="array" then [.[]|select(.type=="text")|.text]|join("\n") else . end' 2>/dev/null
-    fi
-  done | tail -1 | head -c 5000)
+  # Parse subagent transcript for output and token usage
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    [[ $(echo "$line" | jq -r '.type' 2>/dev/null) == "assistant" ]] || continue
+
+    # Extract last assistant message as output
+    text=$(echo "$line" | jq -r '.message.content | if type=="array" then [.[]|select(.type=="text")|.text]|join("\n") else . end' 2>/dev/null)
+    [[ -n "$text" && "$text" != "null" ]] && subagent_output="$text"
+
+    # Accumulate token counts
+    model=$(echo "$line" | jq -r '.message.model // empty' 2>/dev/null)
+    val=$(echo "$line" | jq -r '.message.usage.input_tokens // 0' 2>/dev/null)
+    [[ "$val" =~ ^[0-9]+$ ]] && in_tokens=$((in_tokens + val))
+    val=$(echo "$line" | jq -r '.message.usage.output_tokens // 0' 2>/dev/null)
+    [[ "$val" =~ ^[0-9]+$ ]] && out_tokens=$((out_tokens + val))
+    val=$(echo "$line" | jq -r '.message.usage.cache_read_input_tokens // 0' 2>/dev/null)
+    [[ "$val" =~ ^[0-9]+$ ]] && in_tokens=$((in_tokens + val))
+    val=$(echo "$line" | jq -r '.message.usage.cache_creation_input_tokens // 0' 2>/dev/null)
+    [[ "$val" =~ ^[0-9]+$ ]] && in_tokens=$((in_tokens + val))
+  done < "$transcript_path"
+
+  subagent_output=$(echo "$subagent_output" | head -c 5000)
 fi
 
 # Fall back to current time if no start time found
 [[ -z "$start_time" ]] && start_time="$end_time"
 
-attrs=$(jq -n \
+total_tokens=$((in_tokens + out_tokens))
+
+attrs=$(jq -nc \
   --arg sid "$session_id" \
   --arg agent_id "$agent_id" \
   --arg agent_type "$agent_type" \
   --arg output "$subagent_output" \
-  '{"session.id":$sid,"openinference.span.kind":"chain","subagent.id":$agent_id,"subagent.type":$agent_type} + (if $output != "" then {"output.value":$output} else {} end)')
+  --arg model "$model" \
+  --argjson in_tok "$in_tokens" --argjson out_tok "$out_tokens" --argjson total_tok "$total_tokens" \
+  '{"session.id":$sid,"openinference.span.kind":"chain","subagent.id":$agent_id,"subagent.type":$agent_type,"llm.model_name":$model,"llm.token_count.prompt":$in_tok,"llm.token_count.completion":$out_tok,"llm.token_count.total":$total_tok} + (if $output != "" then {"output.value":$output} else {} end)')
 
 span=$(build_span "Subagent: $agent_type" "CHAIN" "$span_id" "$trace_id" "$parent" "$start_time" "$end_time" "$attrs")
 send_span "$span" || true

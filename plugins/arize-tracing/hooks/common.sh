@@ -8,6 +8,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"
 STATE_DIR="${HOME}/.arize-claude-code"
 
+# Derive Claude Code's PID (grandparent) for per-session state isolation
+_CLAUDE_PID=$(ps -o ppid= -p "$PPID" 2>/dev/null | tr -d ' ') || true
+STATE_FILE="${STATE_DIR}/state_${_CLAUDE_PID:-$$}.json"
+
 ARIZE_API_KEY="${ARIZE_API_KEY:-}"
 ARIZE_SPACE_ID="${ARIZE_SPACE_ID:-}"
 PHOENIX_ENDPOINT="${PHOENIX_ENDPOINT:-}"
@@ -35,21 +39,61 @@ get_timestamp_ms() {
     date +%s%3N 2>/dev/null || date +%s000
 }
 
-# --- State (per-key files to avoid concurrent write races) ---
+# --- State (per-session JSON file with mkdir-based locking) ---
 init_state() {
   mkdir -p "$STATE_DIR"
+  if [[ ! -f "$STATE_FILE" ]]; then
+    echo '{}' > "$STATE_FILE"
+  else
+    jq empty "$STATE_FILE" 2>/dev/null || echo '{}' > "$STATE_FILE"
+  fi
 }
 
-get_state() { cat "${STATE_DIR}/$1" 2>/dev/null || echo ""; }
+_LOCK_DIR="${STATE_DIR}/.lock_${_CLAUDE_PID:-$$}"
 
-set_state() { echo "$2" > "${STATE_DIR}/$1"; }
+_lock_state() {
+  local attempts=0
+  while ! mkdir "$_LOCK_DIR" 2>/dev/null; do
+    attempts=$((attempts + 1))
+    if [[ $attempts -gt 30 ]]; then
+      # Stale lock recovery after ~3s
+      rm -rf "$_LOCK_DIR"
+      mkdir "$_LOCK_DIR" 2>/dev/null || true
+      return 0
+    fi
+    sleep 0.1
+  done
+}
 
-del_state() { rm -f "${STATE_DIR}/$1"; }
+_unlock_state() {
+  rmdir "$_LOCK_DIR" 2>/dev/null || true
+}
+
+get_state() {
+  jq -r ".[\"$1\"] // empty" "$STATE_FILE" 2>/dev/null || echo ""
+}
+
+set_state() {
+  _lock_state
+  local tmp="${STATE_FILE}.tmp.$$"
+  jq --arg k "$1" --arg v "$2" '. + {($k): $v}' "$STATE_FILE" > "$tmp" 2>/dev/null && mv "$tmp" "$STATE_FILE" || rm -f "$tmp"
+  _unlock_state
+}
+
+del_state() {
+  _lock_state
+  local tmp="${STATE_FILE}.tmp.$$"
+  jq "del(.[\"$1\"])" "$STATE_FILE" > "$tmp" 2>/dev/null && mv "$tmp" "$STATE_FILE" || rm -f "$tmp"
+  _unlock_state
+}
 
 inc_state() {
+  _lock_state
   local val
-  val=$(get_state "$1")
-  set_state "$1" "$((${val:-0} + 1))"
+  val=$(jq -r ".[\"$1\"] // \"0\"" "$STATE_FILE" 2>/dev/null)
+  local tmp="${STATE_FILE}.tmp.$$"
+  jq --arg k "$1" --arg v "$((${val:-0} + 1))" '. + {($k): $v}' "$STATE_FILE" > "$tmp" 2>/dev/null && mv "$tmp" "$STATE_FILE" || rm -f "$tmp"
+  _unlock_state
 }
 
 # --- Target Detection ---
@@ -97,7 +141,16 @@ send_to_arize() {
   [[ -z "$py" ]] && { error "Python with opentelemetry not found. Run: pip install opentelemetry-proto grpcio"; return 1; }
   [[ ! -f "$script" ]] && { error "send_span.py not found"; return 1; }
   
-  echo "$span_json" | "$py" "$script"
+  local stderr_tmp
+  stderr_tmp=$(mktemp)
+  if echo "$span_json" | "$py" "$script" 2>"$stderr_tmp"; then
+    rm -f "$stderr_tmp"
+  else
+    [[ -s "$stderr_tmp" ]] && cat "$stderr_tmp" >> "$ARIZE_LOG_FILE"
+    _log_to_file "send_to_arize failed"
+    rm -f "$stderr_tmp"
+    return 1
+  fi
 }
 
 # --- Main send function ---
@@ -118,6 +171,10 @@ send_span() {
     arize) send_to_arize "$span_json" ;;
     *) error "No target. Set PHOENIX_ENDPOINT or ARIZE_API_KEY + ARIZE_SPACE_ID"; return 1 ;;
   esac
+
+  local span_name
+  span_name=$(echo "$span_json" | jq -r '.resourceSpans[0].scopeSpans[0].spans[0].name // "unknown"' 2>/dev/null)
+  log "Sent span: $span_name ($target)"
 }
 
 # --- Build OTLP span ---
@@ -136,7 +193,7 @@ build_span() {
   "traceId":"$trace_id","spanId":"$span_id",$parent_json
   "name":"$name","kind":1,
   "startTimeUnixNano":"${start}000000","endTimeUnixNano":"${end}000000",
-  "attributes":$(echo "$attrs" | jq -c '[to_entries[]|{"key":.key,"value":(if (.value|type)=="number" then {"intValue":.value} else {"stringValue":(.value|tostring)} end)}]'),
+  "attributes":$(echo "$attrs" | jq -c '[to_entries[]|{"key":.key,"value":(if (.value|type)=="number" then (if ((.value|floor) == .value) then {"intValue":.value} else {"doubleValue":.value} end) else {"stringValue":(.value|tostring)} end)}]'),
   "status":{"code":1}
 }]}]}]}
 EOF

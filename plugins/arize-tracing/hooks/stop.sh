@@ -32,30 +32,38 @@ if [[ -f "$transcript" ]]; then
 
     # Extract text
     text=$(echo "$line" | jq -r '.message.content | if type=="array" then [.[]|select(.type=="text")|.text]|join("\n") else . end' 2>/dev/null)
-    [[ -n "$text" && "$text" != "null" ]] && output="${output:+$output\n}$text"
+    [[ -n "$text" && "$text" != "null" ]] && output="${output:+$output
+}$text"
 
-    # Extract model and tokens (safe: default to 0 if jq returns non-numeric)
+    # Extract model and tokens (safe: validate numeric before arithmetic)
     model=$(echo "$line" | jq -r '.message.model // empty' 2>/dev/null)
     val=$(echo "$line" | jq -r '.message.usage.input_tokens // 0' 2>/dev/null)
-    in_tokens=$((in_tokens + ${val:-0}))
+    [[ "$val" =~ ^[0-9]+$ ]] && in_tokens=$((in_tokens + val))
     val=$(echo "$line" | jq -r '.message.usage.output_tokens // 0' 2>/dev/null)
-    out_tokens=$((out_tokens + ${val:-0}))
+    [[ "$val" =~ ^[0-9]+$ ]] && out_tokens=$((out_tokens + val))
+    val=$(echo "$line" | jq -r '.message.usage.cache_read_input_tokens // 0' 2>/dev/null)
+    [[ "$val" =~ ^[0-9]+$ ]] && in_tokens=$((in_tokens + val))
+    val=$(echo "$line" | jq -r '.message.usage.cache_creation_input_tokens // 0' 2>/dev/null)
+    [[ "$val" =~ ^[0-9]+$ ]] && in_tokens=$((in_tokens + val))
   done < <(tail -n +"$((skip_lines + 1))" "$transcript")
 fi
 
-output=$(echo -e "$output" | head -c 5000)
+output=$(printf '%s' "$output" | head -c 5000)
 [[ -z "$output" ]] && output="(No response)"
 
 # Compute total token count
 total_tokens=$((in_tokens + out_tokens))
 
+output_messages=$(jq -nc --arg out "$output" '[{"message.role":"assistant","message.content":$out}]')
+
 attrs=$(jq -nc \
   --arg sid "$session_id" --arg num "$trace_count" --arg proj "$project_name" \
   --arg in "$user_prompt" --arg out "$output" --arg model "$model" \
   --argjson in_tok "$in_tokens" --argjson out_tok "$out_tokens" --argjson total_tok "$total_tokens" \
-  '{"session.id":$sid,"trace.number":$num,"project.name":$proj,"openinference.span.kind":"chain","llm.model_name":$model,"llm.token_count.prompt":$in_tok,"llm.token_count.completion":$out_tok,"llm.token_count.total":$total_tok,"input.value":$in,"output.value":$out}')
+  --argjson out_msgs "$output_messages" \
+  '{"session.id":$sid,"trace.number":$num,"project.name":$proj,"openinference.span.kind":"LLM","llm.model_name":$model,"llm.token_count.prompt":$in_tok,"llm.token_count.completion":$out_tok,"llm.token_count.total":$total_tok,"input.value":$in,"output.value":$out,"llm.output_messages":$out_msgs}')
 
-span=$(build_span "Turn $trace_count" "CHAIN" "$trace_span_id" "$trace_id" "" "$trace_start_time" "$(get_timestamp_ms)" "$attrs")
+span=$(build_span "Turn $trace_count" "LLM" "$trace_span_id" "$trace_id" "" "$trace_start_time" "$(get_timestamp_ms)" "$attrs")
 send_span "$span" || true
 
 del_state "current_trace_prompt"
