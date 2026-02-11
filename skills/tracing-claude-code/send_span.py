@@ -77,6 +77,11 @@ def send_to_arize_grpc(span_data: dict, api_key: str, space_id: str) -> bool:
                                 key=key,
                                 value=common_pb2.AnyValue(int_value=int(value["intValue"]))
                             ))
+                        elif "doubleValue" in value:
+                            attrs.append(common_pb2.KeyValue(
+                                key=key,
+                                value=common_pb2.AnyValue(double_value=float(value["doubleValue"]))
+                            ))
                     
                     # Build span
                     span = trace_pb2.Span(
