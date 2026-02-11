@@ -7,7 +7,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"
 STATE_DIR="${HOME}/.arize-claude-code"
-STATE_FILE="${STATE_DIR}/state.json"
+# Per-instance state: use Claude Code's PID (grandparent) to isolate terminals.
+# Hook chain: Claude Code [PID:A] → arize-tracing.sh [PPID:A] → hook.sh [PPID:B]
+_CLAUDE_PID=$(ps -o ppid= -p $PPID 2>/dev/null | tr -d ' ')
+STATE_FILE="${STATE_DIR}/state_${_CLAUDE_PID:-$$}.json"
 
 ARIZE_API_KEY="${ARIZE_API_KEY:-}"
 ARIZE_SPACE_ID="${ARIZE_SPACE_ID:-}"
@@ -150,7 +153,10 @@ send_to_arize() {
   [[ -z "$py" ]] && { error "Python with opentelemetry not found. Run: pip install opentelemetry-proto grpcio"; return 1; }
   [[ ! -f "$script" ]] && { error "send_span.py not found"; return 1; }
   
-  echo "$span_json" | "$py" "$script"
+  if ! echo "$span_json" | "$py" "$script" 2>>"$ARIZE_LOG_FILE"; then
+    _log_to_file "ERROR: send_span.py failed (exit $?)"
+    return 1
+  fi
 }
 
 # --- Main send function ---
@@ -166,9 +172,12 @@ send_span() {
   
   [[ "$ARIZE_VERBOSE" == "true" ]] && echo "$span_json" | jq -c . >&2
   
+  local span_name
+  span_name=$(echo "$span_json" | jq -r '.resourceSpans[0].scopeSpans[0].spans[0].name' 2>/dev/null)
+
   case "$target" in
-    phoenix) send_to_phoenix "$span_json" ;;
-    arize) send_to_arize "$span_json" ;;
+    phoenix) send_to_phoenix "$span_json" && _log_to_file "Sent span: $span_name (phoenix)" ;;
+    arize) send_to_arize "$span_json" && _log_to_file "Sent span: $span_name (arize)" ;;
     *) error "No target. Set PHOENIX_ENDPOINT or ARIZE_API_KEY + ARIZE_SPACE_ID"; return 1 ;;
   esac
 }
