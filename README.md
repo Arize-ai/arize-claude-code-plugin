@@ -18,22 +18,23 @@ Trace your Claude Code sessions to [Arize AX](https://arize.com) or [Phoenix](ht
 
 ### Option 1: Plugin Marketplace (Recommended)
 
+From within Claude Code:
+
 ```bash
-# Add the Arize plugin repository
-claude plugin marketplace add Arize-ai/arize-claude-plugin
+# Add the Arize marketplace
+/plugin marketplace add Arize-ai/arize-claude-code-plugin
 
 # Install the tracing plugin
-claude plugin install tracing-claude-code@arize-claude-plugin
-
-# Run interactive setup
-~/.claude/plugins/arize-claude-plugin/skills/tracing-claude-code/setup.sh
+/plugin install arize-tracing@arize-plugins
 ```
+
+Or browse and install interactively via `/plugin` > **Discover**.
 
 ### Option 2: Manual Installation
 
 ```bash
-git clone https://github.com/Arize-ai/arize-claude-plugin
-cd arize-claude-plugin
+git clone https://github.com/Arize-ai/arize-claude-code-plugin
+cd arize-claude-code-plugin
 ./install.sh
 ```
 
@@ -164,12 +165,12 @@ pip install opentelemetry-proto grpcio
 
 Note: Phoenix does not require Python — it uses the REST API directly.
 
-### Permission errors
+### Permission errors (manual install)
 
-Make sure the hook script is executable:
+Make sure the hook scripts are executable:
 
 ```bash
-chmod +x ~/.claude/hooks/arize-tracing.sh
+chmod +x ~/.claude/hooks/*.sh
 ```
 
 ## License

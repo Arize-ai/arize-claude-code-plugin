@@ -93,7 +93,7 @@ send_to_phoenix() {
 # --- Send to Arize AX (requires Python) ---
 send_to_arize() {
   local span_json="$1"
-  local script="${SCRIPT_DIR}/send_span.py"
+  local script="${PLUGIN_DIR}/scripts/send_span.py"
   
   # Find python with opentelemetry
   local py=""
