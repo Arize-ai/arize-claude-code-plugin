@@ -30,6 +30,12 @@ From within Claude Code:
 
 Or browse and install interactively via `/plugin` > **Discover**.
 
+After installing, run the interactive setup to configure your backend:
+
+```bash
+~/.claude/plugins/arize-plugins/plugins/claude-code/setup.sh
+```
+
 ### Option 2: Manual Installation
 
 ```bash
@@ -78,7 +84,7 @@ Then configure:
 | `ARIZE_API_KEY` | For AX | - | Arize AX API key |
 | `ARIZE_SPACE_ID` | For AX | - | Arize AX space ID |
 | `PHOENIX_ENDPOINT` | For Phoenix | - | Phoenix collector URL |
-| `ARIZE_PROJECT_NAME` | No | workspace name | Project name in Arize/Phoenix |
+| `ARIZE_PROJECT_NAME` | No | `claude-code` | Project name in Arize/Phoenix |
 | `ARIZE_TRACE_ENABLED` | No | `true` | Enable/disable tracing |
 | `ARIZE_DRY_RUN` | No | `false` | Print spans instead of sending |
 | `ARIZE_VERBOSE` | No | `false` | Enable verbose logging |
@@ -89,8 +95,8 @@ Then configure:
 Once installed and configured, tracing happens automatically. After each session, you'll see:
 
 ```
-[arize] Session complete: 3 traces, 12 tool calls, ~2,450 tokens
-[arize] Trace: https://app.arize.com/spaces/xxx/traces/yyy
+[arize] Session complete: 3 traces, 12 tools
+[arize] View in Arize/Phoenix: session.id = abc123-def456-...
 ```
 
 ### Dry Run Mode
@@ -113,15 +119,15 @@ ARIZE_VERBOSE=true claude
 
 | Hook | Description | Captured Data |
 |------|-------------|---------------|
-| `SessionStart` | Session begins | Session ID, project name, workspace |
-| `UserPromptSubmit` | User sends prompt | Trace number, prompt preview |
-| `PreToolUse` | Before tool executes | Tool name, start time |
-| `PostToolUse` | After tool executes | Tool name, input, output, duration |
-| `Stop` | Claude finishes responding | Token counts, model |
-| `SubagentStop` | Subagent completes | Subagent activity |
-| `Notification` | System notification | Message, level |
-| `PermissionRequest` | Permission requested | Permission type |
-| `SessionEnd` | Session closes | Summary stats, total tokens |
+| `SessionStart` | Session begins | Session ID, project name, timestamps |
+| `UserPromptSubmit` | User sends prompt | Trace ID, prompt preview, transcript position |
+| `PreToolUse` | Before tool executes | Tool ID, start time |
+| `PostToolUse` | After tool executes | Tool name, input, output, duration, tool-specific metadata |
+| `Stop` | Claude finishes responding | Model, token counts, input/output text |
+| `SubagentStop` | Subagent completes | Agent type, model, token counts, output |
+| `Notification` | System notification | Title, message, notification type |
+| `PermissionRequest` | Permission requested | Permission type, tool name |
+| `SessionEnd` | Session closes | Trace count, tool count |
 
 ## Uninstall
 
