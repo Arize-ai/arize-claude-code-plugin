@@ -7,7 +7,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"
 STATE_DIR="${HOME}/.arize-claude-code"
-STATE_FILE="${STATE_DIR}/state.json"
+# Per-instance state: use Claude Code's PID (grandparent) to isolate terminals.
+# Hook chain: Claude Code [PID:A] → arize-tracing.sh [PPID:A] → hook.sh [PPID:B]
+_CLAUDE_PID=$(ps -o ppid= -p $PPID 2>/dev/null | tr -d ' ')
+STATE_FILE="${STATE_DIR}/state_${_CLAUDE_PID:-$$}.json"
 
 ARIZE_API_KEY="${ARIZE_API_KEY:-}"
 ARIZE_SPACE_ID="${ARIZE_SPACE_ID:-}"
@@ -37,26 +40,72 @@ get_timestamp_ms() {
 }
 
 # --- State ---
+LOCK_DIR="${STATE_DIR}/.lock_${_CLAUDE_PID:-$$}"
+
 init_state() {
   mkdir -p "$STATE_DIR"
   [[ -f "$STATE_FILE" ]] || echo '{}' > "$STATE_FILE"
+  # Recover from corrupted state file
+  if ! jq empty "$STATE_FILE" 2>/dev/null; then
+    log "State file corrupted, resetting"
+    echo '{}' > "$STATE_FILE"
+  fi
+}
+
+_lock_state() {
+  local waited=0
+  while ! mkdir "$LOCK_DIR" 2>/dev/null; do
+    sleep 0.05
+    waited=$((waited + 1))
+    # After 3 seconds, assume stale lock and break it
+    if [[ $waited -ge 60 ]]; then
+      rm -rf "$LOCK_DIR"
+    fi
+  done
+}
+
+_unlock_state() {
+  rm -rf "$LOCK_DIR"
 }
 
 get_state() { jq -r ".[\"$1\"] // empty" "$STATE_FILE" 2>/dev/null || echo ""; }
 
 set_state() {
-  local tmp="${STATE_FILE}.tmp"
-  jq --arg k "$1" --arg v "$2" '.[$k] = $v' "$STATE_FILE" > "$tmp" && mv "$tmp" "$STATE_FILE"
+  _lock_state
+  local tmp
+  tmp=$(mktemp "${STATE_FILE}.XXXXXX")
+  if jq --arg k "$1" --arg v "$2" '.[$k] = $v' "$STATE_FILE" > "$tmp" 2>/dev/null; then
+    mv "$tmp" "$STATE_FILE"
+  else
+    rm -f "$tmp"
+  fi
+  _unlock_state
 }
 
 del_state() {
-  local tmp="${STATE_FILE}.tmp"
-  jq --arg k "$1" 'del(.[$k])' "$STATE_FILE" > "$tmp" && mv "$tmp" "$STATE_FILE"
+  _lock_state
+  local tmp
+  tmp=$(mktemp "${STATE_FILE}.XXXXXX")
+  if jq --arg k "$1" 'del(.[$k])' "$STATE_FILE" > "$tmp" 2>/dev/null; then
+    mv "$tmp" "$STATE_FILE"
+  else
+    rm -f "$tmp"
+  fi
+  _unlock_state
 }
 
 inc_state() {
-  local val=$(get_state "$1")
-  set_state "$1" "$((${val:-0} + 1))"
+  _lock_state
+  local val
+  val=$(jq -r ".[\"$1\"] // empty" "$STATE_FILE" 2>/dev/null || echo "")
+  local tmp
+  tmp=$(mktemp "${STATE_FILE}.XXXXXX")
+  if jq --arg k "$1" --arg v "$((${val:-0} + 1))" '.[$k] = $v' "$STATE_FILE" > "$tmp" 2>/dev/null; then
+    mv "$tmp" "$STATE_FILE"
+  else
+    rm -f "$tmp"
+  fi
+  _unlock_state
 }
 
 # --- Target Detection ---
@@ -104,7 +153,10 @@ send_to_arize() {
   [[ -z "$py" ]] && { error "Python with opentelemetry not found. Run: pip install opentelemetry-proto grpcio"; return 1; }
   [[ ! -f "$script" ]] && { error "send_span.py not found"; return 1; }
   
-  echo "$span_json" | "$py" "$script"
+  if ! echo "$span_json" | "$py" "$script" 2>>"$ARIZE_LOG_FILE"; then
+    _log_to_file "ERROR: send_span.py failed (exit $?)"
+    return 1
+  fi
 }
 
 # --- Main send function ---
@@ -120,9 +172,12 @@ send_span() {
   
   [[ "$ARIZE_VERBOSE" == "true" ]] && echo "$span_json" | jq -c . >&2
   
+  local span_name
+  span_name=$(echo "$span_json" | jq -r '.resourceSpans[0].scopeSpans[0].spans[0].name' 2>/dev/null)
+
   case "$target" in
-    phoenix) send_to_phoenix "$span_json" ;;
-    arize) send_to_arize "$span_json" ;;
+    phoenix) send_to_phoenix "$span_json" && _log_to_file "Sent span: $span_name (phoenix)" ;;
+    arize) send_to_arize "$span_json" && _log_to_file "Sent span: $span_name (arize)" ;;
     *) error "No target. Set PHOENIX_ENDPOINT or ARIZE_API_KEY + ARIZE_SPACE_ID"; return 1 ;;
   esac
 }
@@ -143,7 +198,7 @@ build_span() {
   "traceId":"$trace_id","spanId":"$span_id",$parent_json
   "name":"$name","kind":1,
   "startTimeUnixNano":"${start}000000","endTimeUnixNano":"${end}000000",
-  "attributes":$(echo "$attrs" | jq -c '[to_entries[]|{"key":.key,"value":(if (.value|type)=="number" then {"intValue":.value} else {"stringValue":(.value|tostring)} end)}]'),
+  "attributes":$(echo "$attrs" | jq -c '[to_entries[]|{"key":.key,"value":(if (.value|type)=="number" then (if ((.value|floor) == .value) then {"intValue":.value} else {"doubleValue":.value} end) else {"stringValue":(.value|tostring)} end)}]'),
   "status":{"code":1}
 }]}]}]}
 EOF
