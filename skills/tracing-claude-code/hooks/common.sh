@@ -40,7 +40,7 @@ get_timestamp_ms() {
 }
 
 # --- State ---
-LOCK_DIR="${STATE_DIR}/.lock"
+LOCK_DIR="${STATE_DIR}/.lock_${_CLAUDE_PID:-$$}"
 
 init_state() {
   mkdir -p "$STATE_DIR"
