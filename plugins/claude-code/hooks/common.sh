@@ -108,7 +108,7 @@ get_target() {
 send_to_phoenix() {
   local span_json="$1"
   local project="${ARIZE_PROJECT_NAME:-claude-code}"
-  
+
   local payload
   payload=$(echo "$span_json" | jq '{
     data: [.resourceSpans[].scopeSpans[].spans[] | {
@@ -122,7 +122,7 @@ send_to_phoenix() {
       attributes: (reduce .attributes[] as $a ({}; . + {($a.key): ($a.value.stringValue // $a.value.intValue // "")}))
     }]
   }')
-  
+
   curl -sf -X POST "${PHOENIX_ENDPOINT}/v1/projects/${project}/spans" \
     -H "Content-Type: application/json" -d "$payload" >/dev/null
 }
@@ -131,16 +131,16 @@ send_to_phoenix() {
 send_to_arize() {
   local span_json="$1"
   local script="${PLUGIN_DIR}/scripts/send_span.py"
-  
+
   # Find python with opentelemetry
   local py=""
   for p in python3 /usr/bin/python3 "$HOME/miniconda3/bin/python3"; do
     "$p" -c "import opentelemetry" 2>/dev/null && { py="$p"; break; }
   done
-  
+
   [[ -z "$py" ]] && { error "Python with opentelemetry not found. Run: pip install opentelemetry-proto grpcio"; return 1; }
   [[ ! -f "$script" ]] && { error "send_span.py not found"; return 1; }
-  
+
   local stderr_tmp
   stderr_tmp=$(mktemp)
   if echo "$span_json" | "$py" "$script" 2>"$stderr_tmp"; then
@@ -157,15 +157,15 @@ send_to_arize() {
 send_span() {
   local span_json="$1"
   local target=$(get_target)
-  
+
   if [[ "$ARIZE_DRY_RUN" == "true" ]]; then
     log_always "DRY RUN:"
     echo "$span_json" | jq -c '.resourceSpans[].scopeSpans[].spans[].name' >&2
     return 0
   fi
-  
+
   [[ "$ARIZE_VERBOSE" == "true" ]] && echo "$span_json" | jq -c . >&2
-  
+
   case "$target" in
     phoenix) send_to_phoenix "$span_json" ;;
     arize) send_to_arize "$span_json" ;;
@@ -182,10 +182,10 @@ build_span() {
   local name="$1" kind="$2" span_id="$3" trace_id="$4"
   local parent="${5:-}" start="$6" end="${7:-$start}" attrs
   attrs="${8:-"{}"}"
-  
+
   local parent_json=""
   [[ -n "$parent" ]] && parent_json="\"parentSpanId\": \"$parent\","
-  
+
   cat <<EOF
 {"resourceSpans":[{"resource":{"attributes":[
   {"key":"service.name","value":{"stringValue":"claude-code"}}
