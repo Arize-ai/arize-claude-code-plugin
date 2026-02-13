@@ -1,6 +1,6 @@
 #!/bin/bash
 # Arize Claude Code Plugin - Interactive Setup
-# Run after: claude plugin install tracing-claude-code@arize-claude-plugin
+# Run after: claude plugin install claude-code@arize-plugins
 
 set -euo pipefail
 
@@ -16,6 +16,23 @@ echo ""
 # Detect settings file location
 SETTINGS_FILE=".claude/settings.local.json"
 
+# Check for existing configuration
+if [[ -f "$SETTINGS_FILE" ]]; then
+  existing_phoenix=$(jq -r '.env.PHOENIX_ENDPOINT // empty' "$SETTINGS_FILE" 2>/dev/null)
+  existing_arize=$(jq -r '.env.ARIZE_API_KEY // empty' "$SETTINGS_FILE" 2>/dev/null)
+  if [[ -n "$existing_phoenix" ]]; then
+    echo -e "${YELLOW}Existing config found:${NC} Phoenix at $existing_phoenix"
+    read -p "Overwrite? [y/N]: " overwrite
+    [[ "$overwrite" =~ ^[Yy]$ ]] || { echo "Setup cancelled."; exit 0; }
+    echo ""
+  elif [[ -n "$existing_arize" ]]; then
+    echo -e "${YELLOW}Existing config found:${NC} Arize AX"
+    read -p "Overwrite? [y/N]: " overwrite
+    [[ "$overwrite" =~ ^[Yy]$ ]] || { echo "Setup cancelled."; exit 0; }
+    echo ""
+  fi
+fi
+
 # Ask for target
 echo "Which backend do you want to use?"
 echo ""
@@ -30,16 +47,12 @@ case "$choice" in
     read -p "Phoenix endpoint [http://localhost:6006]: " phoenix_endpoint
     phoenix_endpoint="${phoenix_endpoint:-http://localhost:6006}"
     
-    # Create settings
+    # Merge into existing settings
     mkdir -p .claude
-    cat > "$SETTINGS_FILE" << EOF
-{
-  "env": {
-    "PHOENIX_ENDPOINT": "$phoenix_endpoint",
-    "ARIZE_TRACE_ENABLED": "true"
-  }
-}
-EOF
+    [[ -f "$SETTINGS_FILE" ]] || echo '{}' > "$SETTINGS_FILE"
+    jq --arg endpoint "$phoenix_endpoint" \
+      '.env = (.env // {}) + {"PHOENIX_ENDPOINT": $endpoint, "ARIZE_TRACE_ENABLED": "true"}' \
+      "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp" && mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"
     echo ""
     echo -e "${GREEN}✓${NC} Configured for Phoenix at $phoenix_endpoint"
     ;;
@@ -54,17 +67,12 @@ EOF
       exit 1
     fi
     
-    # Create settings
+    # Merge into existing settings
     mkdir -p .claude
-    cat > "$SETTINGS_FILE" << EOF
-{
-  "env": {
-    "ARIZE_API_KEY": "$api_key",
-    "ARIZE_SPACE_ID": "$space_id",
-    "ARIZE_TRACE_ENABLED": "true"
-  }
-}
-EOF
+    [[ -f "$SETTINGS_FILE" ]] || echo '{}' > "$SETTINGS_FILE"
+    jq --arg key "$api_key" --arg space "$space_id" \
+      '.env = (.env // {}) + {"ARIZE_API_KEY": $key, "ARIZE_SPACE_ID": $space, "ARIZE_TRACE_ENABLED": "true"}' \
+      "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp" && mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"
     echo ""
     echo -e "${GREEN}✓${NC} Configured for Arize AX"
     echo ""

@@ -8,6 +8,7 @@ Trace your Claude Code sessions to [Arize AX](https://arize.com) or [Phoenix](ht
   - SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop, SubagentStop, Notification, PermissionRequest, SessionEnd
 - **Dual Target Support** — Send traces to Arize AX (cloud) or Phoenix (self-hosted)
 - **OpenInference Format** — Standard span format compatible with any OpenInference tool
+- **Guided Setup Skill** — `/setup-tracing` walks you through configuration from within Claude Code
 - **DX Features** — Dry run mode, verbose output, session summaries
 - **Automatic Cost Tracking** — Phoenix/Arize calculate costs from token counts automatically
 - **Minimal Dependencies**
@@ -18,16 +19,25 @@ Trace your Claude Code sessions to [Arize AX](https://arize.com) or [Phoenix](ht
 
 ### Option 1: Plugin Marketplace (Recommended)
 
+From within Claude Code:
+
 ```bash
-# Add the Arize plugin repository
-claude plugin marketplace add Arize-ai/arize-claude-plugin
+# Add the Arize marketplace
+/plugin marketplace add Arize-ai/arize-claude-code-plugin
 
 # Install the tracing plugin
-claude plugin install tracing-claude-code@arize-claude-plugin
-
-# Run interactive setup
-~/.claude/plugins/arize-claude-plugin/skills/tracing-claude-code/setup.sh
+/plugin install claude-code@arize-plugins
 ```
+
+Or browse and install interactively via `/plugin` > **Discover**.
+
+After installing, configure tracing from within Claude Code:
+
+```
+/setup-tracing
+```
+
+This walks you through choosing a backend (Phoenix or Arize AX), collecting credentials, writing the config, and validating the setup. It can also help you create a new Arize account or install Phoenix from scratch.
 
 ### Option 2: Manual Installation
 
@@ -90,7 +100,7 @@ Then configure:
 | `ARIZE_SPACE_ID` | For AX | - | Arize AX space ID |
 | `PHOENIX_ENDPOINT` | For Phoenix | - | Phoenix collector URL |
 | `PHOENIX_API_KEY` | No | - | Phoenix API key for authentication |
-| `ARIZE_PROJECT_NAME` | No | workspace name | Project name in Arize/Phoenix |
+| `ARIZE_PROJECT_NAME` | No | `claude-code` | Project name in Arize/Phoenix |
 | `ARIZE_TRACE_ENABLED` | No | `true` | Enable/disable tracing |
 | `ARIZE_DRY_RUN` | No | `false` | Print spans instead of sending |
 | `ARIZE_VERBOSE` | No | `false` | Enable verbose logging |
@@ -101,8 +111,8 @@ Then configure:
 Once installed and configured, tracing happens automatically. After each session, you'll see:
 
 ```
-[arize] Session complete: 3 traces, 12 tool calls, ~2,450 tokens
-[arize] Trace: https://app.arize.com/spaces/xxx/traces/yyy
+[arize] Session complete: 3 traces, 12 tools
+[arize] View in Arize/Phoenix: session.id = abc123-def456-...
 ```
 
 ### Dry Run Mode
@@ -125,17 +135,25 @@ ARIZE_VERBOSE=true claude
 
 | Hook | Description | Captured Data |
 |------|-------------|---------------|
-| `SessionStart` | Session begins | Session ID, project name, workspace |
-| `UserPromptSubmit` | User sends prompt | Trace number, prompt preview |
-| `PreToolUse` | Before tool executes | Tool name, start time |
-| `PostToolUse` | After tool executes | Tool name, input, output, duration |
-| `Stop` | Claude finishes responding | Token counts, model |
-| `SubagentStop` | Subagent completes | Subagent activity |
-| `Notification` | System notification | Message, level |
-| `PermissionRequest` | Permission requested | Permission type |
-| `SessionEnd` | Session closes | Summary stats, total tokens |
+| `SessionStart` | Session begins | Session ID, project name, timestamps |
+| `UserPromptSubmit` | User sends prompt | Trace ID, prompt preview, transcript position |
+| `PreToolUse` | Before tool executes | Tool ID, start time |
+| `PostToolUse` | After tool executes | Tool name, input, output, duration, tool-specific metadata |
+| `Stop` | Claude finishes responding | Model, token counts, input/output text |
+| `SubagentStop` | Subagent completes | Agent type, model, token counts, output |
+| `Notification` | System notification | Title, message, notification type |
+| `PermissionRequest` | Permission requested | Permission type, tool name |
+| `SessionEnd` | Session closes | Trace count, tool count |
 
 ## Uninstall
+
+**Plugin marketplace:**
+
+```bash
+/plugin uninstall claude-code@arize-plugins
+```
+
+**Manual install:**
 
 ```bash
 ./install.sh uninstall
@@ -177,12 +195,12 @@ pip install opentelemetry-proto grpcio
 
 Note: Phoenix does not require Python — it uses the REST API directly.
 
-### Permission errors
+### Permission errors (manual install)
 
-Make sure the hook script is executable:
+Make sure the hook scripts are executable:
 
 ```bash
-chmod +x ~/.claude/hooks/arize-tracing.sh
+chmod +x ~/.claude/hooks/*.sh
 ```
 
 ## License
