@@ -15,6 +15,7 @@ STATE_FILE="${STATE_DIR}/state_${_CLAUDE_PID:-$$}.json"
 ARIZE_API_KEY="${ARIZE_API_KEY:-}"
 ARIZE_SPACE_ID="${ARIZE_SPACE_ID:-}"
 PHOENIX_ENDPOINT="${PHOENIX_ENDPOINT:-}"
+PHOENIX_API_KEY="${PHOENIX_API_KEY:-}"
 ARIZE_PROJECT_NAME="${ARIZE_PROJECT_NAME:-}"
 ARIZE_TRACE_ENABLED="${ARIZE_TRACE_ENABLED:-true}"
 ARIZE_DRY_RUN="${ARIZE_DRY_RUN:-false}"
@@ -120,7 +121,7 @@ get_target() {
 send_to_phoenix() {
   local span_json="$1"
   local project="${ARIZE_PROJECT_NAME:-claude-code}"
-  
+
   local payload
   payload=$(echo "$span_json" | jq '{
     data: [.resourceSpans[].scopeSpans[].spans[] | {
@@ -134,9 +135,13 @@ send_to_phoenix() {
       attributes: (reduce .attributes[] as $a ({}; . + {($a.key): ($a.value.stringValue // $a.value.intValue // "")}))
     }]
   }')
-  
-  curl -sf -X POST "${PHOENIX_ENDPOINT}/v1/projects/${project}/spans" \
-    -H "Content-Type: application/json" -d "$payload" >/dev/null
+
+  # Build curl command with optional Authorization header
+  local curl_cmd=(curl -sf -X POST "${PHOENIX_ENDPOINT}/v1/projects/${project}/spans" -H "Content-Type: application/json")
+  [[ -n "$PHOENIX_API_KEY" ]] && curl_cmd+=(-H "Authorization: Bearer ${PHOENIX_API_KEY}")
+  curl_cmd+=(-d "$payload")
+
+  "${curl_cmd[@]}" >/dev/null
 }
 
 # --- Send to Arize AX (requires Python) ---

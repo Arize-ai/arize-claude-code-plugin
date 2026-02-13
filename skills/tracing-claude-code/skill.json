@@ -71,6 +71,10 @@
       "description": "Phoenix collector URL (required for Phoenix, e.g., http://localhost:6006)",
       "required": false
     },
+    "PHOENIX_API_KEY": {
+      "description": "Phoenix API key for authentication (optional)",
+      "required": false
+    },
     "ARIZE_PROJECT_NAME": {
       "description": "Project name (defaults to workspace name)",
       "required": false
