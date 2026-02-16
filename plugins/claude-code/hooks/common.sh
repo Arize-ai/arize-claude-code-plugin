@@ -7,9 +7,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"
 STATE_DIR="${HOME}/.arize-claude-code"
-# Per-instance state: use Claude Code's PID (grandparent) to isolate terminals.
-# Hook chain: Claude Code [PID:A] → arize-tracing.sh [PPID:A] → hook.sh [PPID:B]
-_CLAUDE_PID=$(ps -o ppid= -p $PPID 2>/dev/null | tr -d ' ')
+
+# Derive Claude Code's PID (grandparent) for per-session state isolation
+_CLAUDE_PID=$(ps -o ppid= -p "$PPID" 2>/dev/null | tr -d ' ') || true
 STATE_FILE="${STATE_DIR}/state_${_CLAUDE_PID:-$$}.json"
 
 ARIZE_API_KEY="${ARIZE_API_KEY:-}"
@@ -40,72 +40,60 @@ get_timestamp_ms() {
     date +%s%3N 2>/dev/null || date +%s000
 }
 
-# --- State ---
-LOCK_DIR="${STATE_DIR}/.lock_${_CLAUDE_PID:-$$}"
-
+# --- State (per-session JSON file with mkdir-based locking) ---
 init_state() {
   mkdir -p "$STATE_DIR"
-  [[ -f "$STATE_FILE" ]] || echo '{}' > "$STATE_FILE"
-  # Recover from corrupted state file
-  if ! jq empty "$STATE_FILE" 2>/dev/null; then
-    log "State file corrupted, resetting"
+  if [[ ! -f "$STATE_FILE" ]]; then
     echo '{}' > "$STATE_FILE"
+  else
+    jq empty "$STATE_FILE" 2>/dev/null || echo '{}' > "$STATE_FILE"
   fi
 }
 
+_LOCK_DIR="${STATE_DIR}/.lock_${_CLAUDE_PID:-$$}"
+
 _lock_state() {
-  local waited=0
-  while ! mkdir "$LOCK_DIR" 2>/dev/null; do
-    sleep 0.05
-    waited=$((waited + 1))
-    # After 3 seconds, assume stale lock and break it
-    if [[ $waited -ge 60 ]]; then
-      rm -rf "$LOCK_DIR"
+  local attempts=0
+  while ! mkdir "$_LOCK_DIR" 2>/dev/null; do
+    attempts=$((attempts + 1))
+    if [[ $attempts -gt 30 ]]; then
+      # Stale lock recovery after ~3s
+      rm -rf "$_LOCK_DIR"
+      mkdir "$_LOCK_DIR" 2>/dev/null || true
+      return 0
     fi
+    sleep 0.1
   done
 }
 
 _unlock_state() {
-  rm -rf "$LOCK_DIR"
+  rmdir "$_LOCK_DIR" 2>/dev/null || true
 }
 
-get_state() { jq -r ".[\"$1\"] // empty" "$STATE_FILE" 2>/dev/null || echo ""; }
+get_state() {
+  jq -r ".[\"$1\"] // empty" "$STATE_FILE" 2>/dev/null || echo ""
+}
 
 set_state() {
   _lock_state
-  local tmp
-  tmp=$(mktemp "${STATE_FILE}.XXXXXX")
-  if jq --arg k "$1" --arg v "$2" '.[$k] = $v' "$STATE_FILE" > "$tmp" 2>/dev/null; then
-    mv "$tmp" "$STATE_FILE"
-  else
-    rm -f "$tmp"
-  fi
+  local tmp="${STATE_FILE}.tmp.$$"
+  jq --arg k "$1" --arg v "$2" '. + {($k): $v}' "$STATE_FILE" > "$tmp" 2>/dev/null && mv "$tmp" "$STATE_FILE" || rm -f "$tmp"
   _unlock_state
 }
 
 del_state() {
   _lock_state
-  local tmp
-  tmp=$(mktemp "${STATE_FILE}.XXXXXX")
-  if jq --arg k "$1" 'del(.[$k])' "$STATE_FILE" > "$tmp" 2>/dev/null; then
-    mv "$tmp" "$STATE_FILE"
-  else
-    rm -f "$tmp"
-  fi
+  local tmp="${STATE_FILE}.tmp.$$"
+  jq "del(.[\"$1\"])" "$STATE_FILE" > "$tmp" 2>/dev/null && mv "$tmp" "$STATE_FILE" || rm -f "$tmp"
   _unlock_state
 }
 
 inc_state() {
   _lock_state
   local val
-  val=$(jq -r ".[\"$1\"] // empty" "$STATE_FILE" 2>/dev/null || echo "")
-  local tmp
-  tmp=$(mktemp "${STATE_FILE}.XXXXXX")
-  if jq --arg k "$1" --arg v "$((${val:-0} + 1))" '.[$k] = $v' "$STATE_FILE" > "$tmp" 2>/dev/null; then
-    mv "$tmp" "$STATE_FILE"
-  else
-    rm -f "$tmp"
-  fi
+  val=$(jq -r ".[\"$1\"] // \"0\"" "$STATE_FILE" 2>/dev/null)
+  local tmp="${STATE_FILE}.tmp.$$"
+  jq --arg k "$1" --arg v "$((${val:-0} + 1))" '. + {($k): $v}' "$STATE_FILE" > "$tmp" 2>/dev/null && mv "$tmp" "$STATE_FILE" || rm -f "$tmp"
   _unlock_state
 }
 
@@ -147,19 +135,26 @@ send_to_phoenix() {
 # --- Send to Arize AX (requires Python) ---
 send_to_arize() {
   local span_json="$1"
-  local script="${SCRIPT_DIR}/send_span.py"
-  
+  local script="${PLUGIN_DIR}/scripts/send_span.py"
+
   # Find python with opentelemetry
   local py=""
   for p in python3 /usr/bin/python3 "$HOME/miniconda3/bin/python3"; do
     "$p" -c "import opentelemetry" 2>/dev/null && { py="$p"; break; }
   done
-  
+
   [[ -z "$py" ]] && { error "Python with opentelemetry not found. Run: pip install opentelemetry-proto grpcio"; return 1; }
   [[ ! -f "$script" ]] && { error "send_span.py not found"; return 1; }
-  
-  if ! echo "$span_json" | "$py" "$script" 2>>"$ARIZE_LOG_FILE"; then
-    _log_to_file "ERROR: send_span.py failed (exit $?)"
+
+  local stderr_tmp
+  stderr_tmp=$(mktemp)
+  if echo "$span_json" | "$py" "$script" 2>"$stderr_tmp"; then
+    _log_to_file "DEBUG send_to_arize succeeded"
+    rm -f "$stderr_tmp"
+  else
+    _log_to_file "DEBUG send_to_arize FAILED (exit=$?)"
+    [[ -s "$stderr_tmp" ]] && { _log_to_file "DEBUG stderr:"; cat "$stderr_tmp" >> "$ARIZE_LOG_FILE"; }
+    rm -f "$stderr_tmp"
     return 1
   fi
 }
@@ -168,23 +163,24 @@ send_to_arize() {
 send_span() {
   local span_json="$1"
   local target=$(get_target)
-  
+
   if [[ "$ARIZE_DRY_RUN" == "true" ]]; then
     log_always "DRY RUN:"
     echo "$span_json" | jq -c '.resourceSpans[].scopeSpans[].spans[].name' >&2
     return 0
   fi
-  
+
   [[ "$ARIZE_VERBOSE" == "true" ]] && echo "$span_json" | jq -c . >&2
-  
-  local span_name
-  span_name=$(echo "$span_json" | jq -r '.resourceSpans[0].scopeSpans[0].spans[0].name' 2>/dev/null)
 
   case "$target" in
-    phoenix) send_to_phoenix "$span_json" && _log_to_file "Sent span: $span_name (phoenix)" ;;
-    arize) send_to_arize "$span_json" && _log_to_file "Sent span: $span_name (arize)" ;;
+    phoenix) send_to_phoenix "$span_json" ;;
+    arize) send_to_arize "$span_json" ;;
     *) error "No target. Set PHOENIX_ENDPOINT or ARIZE_API_KEY + ARIZE_SPACE_ID"; return 1 ;;
   esac
+
+  local span_name
+  span_name=$(echo "$span_json" | jq -r '.resourceSpans[0].scopeSpans[0].spans[0].name // "unknown"' 2>/dev/null)
+  log "Sent span: $span_name ($target)"
 }
 
 # --- Build OTLP span ---
@@ -192,10 +188,10 @@ build_span() {
   local name="$1" kind="$2" span_id="$3" trace_id="$4"
   local parent="${5:-}" start="$6" end="${7:-$start}" attrs
   attrs="${8:-"{}"}"
-  
+
   local parent_json=""
   [[ -n "$parent" ]] && parent_json="\"parentSpanId\": \"$parent\","
-  
+
   cat <<EOF
 {"resourceSpans":[{"resource":{"attributes":[
   {"key":"service.name","value":{"stringValue":"claude-code"}}

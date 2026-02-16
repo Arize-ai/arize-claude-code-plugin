@@ -12,7 +12,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLAUDE_DIR="${HOME}/.claude"
 HOOKS_DIR="${CLAUDE_DIR}/hooks"
 SETTINGS_FILE="${CLAUDE_DIR}/settings.json"
-SOURCE_HOOKS="${SCRIPT_DIR}/skills/tracing-claude-code/hooks"
+PLUGIN_DIR="${SCRIPT_DIR}/plugins/claude-code"
+SOURCE_HOOKS="${PLUGIN_DIR}/hooks"
+YELLOW='\033[1;33m'
 
 check_requirements() {
   command -v jq &>/dev/null || { error "jq required. Install: brew install jq"; exit 1; }
@@ -20,15 +22,24 @@ check_requirements() {
   success "Requirements met"
 }
 
+check_existing() {
+  if [[ -f "$SETTINGS_FILE" ]] && jq -e '.hooks' "$SETTINGS_FILE" &>/dev/null; then
+    echo -e "${YELLOW}Existing hooks found in${NC} $SETTINGS_FILE"
+    read -p "Overwrite hooks config? [y/N]: " overwrite
+    [[ "$overwrite" =~ ^[Yy]$ ]] || { echo "Install cancelled."; exit 0; }
+    echo ""
+  fi
+}
+
 install_hooks() {
   mkdir -p "$HOOKS_DIR"
+  mkdir -p "${CLAUDE_DIR}/scripts"
 
   # Copy all hook scripts
   cp "$SOURCE_HOOKS"/*.sh "$HOOKS_DIR/"
-  cp "${SCRIPT_DIR}/skills/tracing-claude-code/hooks.sh" "$HOOKS_DIR/arize-tracing.sh"
-  cp "${SCRIPT_DIR}/skills/tracing-claude-code/send_span.py" "$HOOKS_DIR/send_span.py"
+  cp "${PLUGIN_DIR}/scripts/send_span.py" "${CLAUDE_DIR}/scripts/send_span.py"
   chmod +x "$HOOKS_DIR"/*.sh
-  chmod +x "$HOOKS_DIR/send_span.py"
+  chmod +x "${CLAUDE_DIR}/scripts/send_span.py"
 
   success "Hooks installed to $HOOKS_DIR"
 }
@@ -36,24 +47,25 @@ install_hooks() {
 configure_hooks() {
   mkdir -p "$CLAUDE_DIR"
   [[ -f "$SETTINGS_FILE" ]] || echo '{}' > "$SETTINGS_FILE"
-  
-  local cmd="bash ${HOOKS_DIR}/arize-tracing.sh"
+
   local hooks_config
   hooks_config=$(jq -n \
-    --arg cmd "$cmd" \
+    --arg dir "$HOOKS_DIR" \
     '{
-      SessionStart: [{hooks:[{type:"command",command:($cmd+" SessionStart")}]}],
-      UserPromptSubmit: [{hooks:[{type:"command",command:($cmd+" UserPromptSubmit")}]}],
-      PreToolUse: [{hooks:[{type:"command",command:($cmd+" PreToolUse")}]}],
-      PostToolUse: [{hooks:[{type:"command",command:($cmd+" PostToolUse")}]}],
-      Stop: [{hooks:[{type:"command",command:($cmd+" Stop")}]}],
-      SubagentStop: [{hooks:[{type:"command",command:($cmd+" SubagentStop")}]}],
-      SessionEnd: [{hooks:[{type:"command",command:($cmd+" SessionEnd")}]}]
+      SessionStart: [{hooks:[{type:"command",command:("bash " + $dir + "/session_start.sh")}]}],
+      UserPromptSubmit: [{hooks:[{type:"command",command:("bash " + $dir + "/user_prompt_submit.sh")}]}],
+      PreToolUse: [{hooks:[{type:"command",command:("bash " + $dir + "/pre_tool_use.sh")}]}],
+      PostToolUse: [{hooks:[{type:"command",command:("bash " + $dir + "/post_tool_use.sh")}]}],
+      Stop: [{hooks:[{type:"command",command:("bash " + $dir + "/stop.sh")}]}],
+      SubagentStop: [{hooks:[{type:"command",command:("bash " + $dir + "/subagent_stop.sh")}]}],
+      Notification: [{hooks:[{type:"command",command:("bash " + $dir + "/notification.sh")}]}],
+      PermissionRequest: [{hooks:[{type:"command",command:("bash " + $dir + "/permission_request.sh")}]}],
+      SessionEnd: [{hooks:[{type:"command",command:("bash " + $dir + "/session_end.sh")}]}]
     }')
-  
-  jq --argjson h "$hooks_config" '.hooks = $h' "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp"
+
+  jq --argjson h "$hooks_config" '.hooks = (.hooks // {}) + $h' "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp"
   mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"
-  
+
   success "Hooks configured in $SETTINGS_FILE"
 }
 
@@ -71,7 +83,7 @@ print_config() {
 
 uninstall() {
   log "Uninstalling..."
-  rm -f "$HOOKS_DIR"/arize-tracing.sh "$HOOKS_DIR"/{session_start,session_end,user_prompt_submit,pre_tool_use,post_tool_use,stop,subagent_stop,notification,permission_request,common}.sh
+  rm -f "$HOOKS_DIR"/{session_start,session_end,user_prompt_submit,pre_tool_use,post_tool_use,stop,subagent_stop,notification,permission_request,common}.sh "${CLAUDE_DIR}/scripts/send_span.py"
   [[ -f "$SETTINGS_FILE" ]] && jq 'del(.hooks)' "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp" && mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"
   rm -rf "${HOME}/.arize-claude-code"
   success "Uninstalled"
@@ -83,6 +95,7 @@ main() {
   case "${1:-install}" in
     install)
       check_requirements
+      check_existing
       install_hooks
       configure_hooks
       print_config
