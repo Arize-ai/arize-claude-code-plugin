@@ -62,6 +62,18 @@ Add to your project's `.claude/settings.local.json`:
 }
 ```
 
+If your Phoenix instance requires authentication, add the API key:
+
+```json
+{
+  "env": {
+    "PHOENIX_ENDPOINT": "http://localhost:6006",
+    "PHOENIX_API_KEY": "your-phoenix-api-key",
+    "ARIZE_TRACE_ENABLED": "true"
+  }
+}
+```
+
 **For Arize AX (cloud) — Requires Python:**
 
 First install dependencies:
@@ -87,7 +99,8 @@ Then configure:
 | `ARIZE_API_KEY` | For AX | - | Arize AX API key |
 | `ARIZE_SPACE_ID` | For AX | - | Arize AX space ID |
 | `PHOENIX_ENDPOINT` | For Phoenix | - | Phoenix collector URL |
-| `ARIZE_PROJECT_NAME` | No | `claude-code` | Project name in Arize/Phoenix |
+| `PHOENIX_API_KEY` | No | - | Phoenix API key for authentication |
+| `ARIZE_PROJECT_NAME` | No | workspace name | Project name in Arize/Phoenix |
 | `ARIZE_TRACE_ENABLED` | No | `true` | Enable/disable tracing |
 | `ARIZE_DRY_RUN` | No | `false` | Print spans instead of sending |
 | `ARIZE_VERBOSE` | No | `false` | Enable verbose logging |
