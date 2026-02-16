@@ -23,7 +23,7 @@ attrs=$(jq -n \
   --arg msg "$message" \
   --arg title "$title" \
   --arg type "$notif_type" \
-  '{"session.id":$sid,"openinference.span.kind":"chain","notification.message":$msg,"notification.title":$title,"notification.type":$type}')
+  '{"session.id":$sid,"openinference.span.kind":"chain","notification.message":$msg,"notification.title":$title,"notification.type":$type,"input.value":$msg}')
 
 span=$(build_span "Notification: $notif_type" "CHAIN" "$span_id" "$trace_id" "$parent" "$ts" "$ts" "$attrs")
 send_span "$span" || true

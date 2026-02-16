@@ -149,10 +149,11 @@ send_to_arize() {
   local stderr_tmp
   stderr_tmp=$(mktemp)
   if echo "$span_json" | "$py" "$script" 2>"$stderr_tmp"; then
+    _log_to_file "DEBUG send_to_arize succeeded"
     rm -f "$stderr_tmp"
   else
-    [[ -s "$stderr_tmp" ]] && cat "$stderr_tmp" >> "$ARIZE_LOG_FILE"
-    _log_to_file "send_to_arize failed"
+    _log_to_file "DEBUG send_to_arize FAILED (exit=$?)"
+    [[ -s "$stderr_tmp" ]] && { _log_to_file "DEBUG stderr:"; cat "$stderr_tmp" >> "$ARIZE_LOG_FILE"; }
     rm -f "$stderr_tmp"
     return 1
   fi

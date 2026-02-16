@@ -73,19 +73,21 @@ python3 -c "import opentelemetry; import grpc; print('OK')"
 
 Then proceed to [Configure Local Project](#configure-local-project).
 
-## Configure Local Project
+## Configure Settings
 
-Merge tracing config into `.claude/settings.local.json` in the current working directory. Create the file and `.claude/` directory if needed. Preserve existing settings — only add/update keys under `"env"`.
+Add tracing env vars to `~/.claude/settings.json` — the same file where the plugin's hooks are configured. Preserve all existing settings (hooks, enabledPlugins, etc.) — only add/update keys under `"env"`.
 
 ### Ask the user for:
 
 1. **Backend choice** (if not already determined): Phoenix or Arize AX
 2. **Credentials**:
-   - Phoenix: endpoint URL (default: `http://localhost:6006`)
+   - Phoenix: endpoint URL (default: `http://localhost:6006`), optional API key
    - Arize AX: API key and Space ID
 3. **Project name** (optional): defaults to `claude-code`
 
 ### Write the config
+
+Read `~/.claude/settings.json`, then merge the appropriate env vars into the existing `"env"` object.
 
 **Phoenix:**
 ```json
@@ -96,6 +98,8 @@ Merge tracing config into `.claude/settings.local.json` in the current working d
   }
 }
 ```
+
+If the user has a Phoenix API key, also set `"PHOENIX_API_KEY": "<key>"`.
 
 **Arize AX:**
 ```json
@@ -119,7 +123,7 @@ If a custom project name was provided, also set `"ARIZE_PROJECT_NAME": "<name>"`
 ### Confirm
 
 Tell the user:
-- Configuration saved to `.claude/settings.local.json`
+- Configuration saved to `~/.claude/settings.json` alongside hook config
 - Restart the Claude Code session for tracing to take effect
 - After restarting, traces will appear in their Phoenix UI or Arize AX dashboard under the project name
 - Mention `ARIZE_DRY_RUN=true` to test without sending data
@@ -132,7 +136,7 @@ Common issues and fixes:
 
 | Problem | Fix |
 |---------|-----|
-| Traces not appearing | Check `ARIZE_TRACE_ENABLED` is `"true"` in `.claude/settings.local.json` |
+| Traces not appearing | Check `ARIZE_TRACE_ENABLED` is `"true"` in `~/.claude/settings.json` |
 | Phoenix unreachable | Verify Phoenix is running: `curl -sf <endpoint>/v1/traces` |
 | "Python with opentelemetry not found" | Run `pip install opentelemetry-proto grpcio` |
 | No output in terminal | Hook stderr is discarded by Claude Code; check `/tmp/arize-claude-code.log` |

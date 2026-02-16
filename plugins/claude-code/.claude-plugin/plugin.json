@@ -17,6 +17,7 @@
     "phoenix",
     "claude-code"
   ],
+  "skills": "./skills",
   "hooks": {
     "SessionStart": [
       {
