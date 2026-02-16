@@ -8,7 +8,7 @@ Trace your Claude Code sessions to [Arize AX](https://arize.com) or [Phoenix](ht
   - SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop, SubagentStop, Notification, PermissionRequest, SessionEnd
 - **Dual Target Support** — Send traces to Arize AX (cloud) or Phoenix (self-hosted)
 - **OpenInference Format** — Standard span format compatible with any OpenInference tool
-- **Guided Setup Skill** — `/setup-tracing` walks you through configuration from within Claude Code
+- **Guided Setup Skill** — `/setup-claude-code-tracing` walks you through configuration from within Claude Code
 - **DX Features** — Dry run mode, verbose output, session summaries
 - **Automatic Cost Tracking** — Phoenix/Arize calculate costs from token counts automatically
 - **Minimal Dependencies**
@@ -26,7 +26,7 @@ claude plugin add https://github.com/Arize-ai/arize-claude-code-plugin.git
 Then configure tracing from within Claude Code:
 
 ```
-/setup-tracing
+/setup-claude-code-tracing
 ```
 
 This walks you through choosing a backend (Phoenix or Arize AX), collecting credentials, writing the config, and validating the setup.
