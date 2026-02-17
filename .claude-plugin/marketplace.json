@@ -1,5 +1,5 @@
 {
-  "name": "arize-plugins",
+  "name": "arize-claude-plugin",
   "owner": {
     "name": "Arize AI",
     "email": "support@arize.com"
@@ -9,8 +9,8 @@
   },
   "plugins": [
     {
-      "name": "claude-code",
-      "source": "./plugins/claude-code",
+      "name": "claude-code-tracing",
+      "source": "./plugins/claude-code-tracing",
       "description": "Automatic tracing of Claude Code sessions to Arize AX or Phoenix with OpenInference spans",
       "version": "1.0.0",
       "homepage": "https://arize.com",
