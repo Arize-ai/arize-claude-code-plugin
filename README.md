@@ -144,7 +144,7 @@ ARIZE_VERBOSE=true claude
 **Plugin marketplace:**
 
 ```bash
-/plugin uninstall claude-code@arize-plugins
+/plugin uninstall claude-code-tracing@arize-claude-plugin
 ```
 
 **Manual install:**

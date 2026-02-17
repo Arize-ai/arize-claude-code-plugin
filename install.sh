@@ -12,7 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLAUDE_DIR="${HOME}/.claude"
 HOOKS_DIR="${CLAUDE_DIR}/hooks"
 SETTINGS_FILE="${CLAUDE_DIR}/settings.json"
-PLUGIN_DIR="${SCRIPT_DIR}/plugins/claude-code"
+PLUGIN_DIR="${SCRIPT_DIR}/plugins/claude-code-tracing"
 SOURCE_HOOKS="${PLUGIN_DIR}/hooks"
 YELLOW='\033[1;33m'
 
