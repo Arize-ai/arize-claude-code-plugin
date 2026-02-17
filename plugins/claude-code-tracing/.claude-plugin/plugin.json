@@ -1,5 +1,5 @@
 {
-  "name": "claude-code",
+  "name": "claude-code-tracing",
   "description": "Automatic tracing of Claude Code sessions to Arize AX or Phoenix with OpenInference spans. Supports 9 hooks for comprehensive observability.",
   "version": "1.0.0",
   "author": {
@@ -17,7 +17,6 @@
     "phoenix",
     "claude-code"
   ],
-  "skills": "./skills",
   "hooks": {
     "SessionStart": [
       {

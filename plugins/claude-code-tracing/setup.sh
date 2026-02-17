@@ -1,6 +1,6 @@
 #!/bin/bash
 # Arize Claude Code Plugin - Interactive Setup
-# Run after: claude plugin install claude-code@arize-plugins
+# Run after: claude plugin install claude-code-tracing@arize-claude-plugin
 
 set -euo pipefail
 
