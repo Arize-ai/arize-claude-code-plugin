@@ -117,7 +117,7 @@ Then configure:
 | `ARIZE_SPACE_ID` | For AX | - | Arize AX space ID |
 | `PHOENIX_ENDPOINT` | For Phoenix | `http://localhost:6006` | Phoenix collector URL |
 | `PHOENIX_API_KEY` | No | - | Phoenix API key for authentication |
-| `ARIZE_PROJECT_NAME` | No | workspace name | Project name in Arize/Phoenix |
+| `ARIZE_PROJECT_NAME` | No | `claude-code` | Project name in Arize/Phoenix |
 | `ARIZE_TRACE_ENABLED` | No | `true` | Enable/disable tracing |
 | `ARIZE_DRY_RUN` | No | `false` | Print spans instead of sending |
 | `ARIZE_VERBOSE` | No | `false` | Enable verbose logging |
