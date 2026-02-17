@@ -1,0 +1,20 @@
+{
+  "name": "arize-platform",
+  "description": "Skills for querying and analyzing data from the Arize ML observability platform using GraphQL. Includes trace analysis and general platform analytics.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Arize AI",
+    "email": "support@arize.com",
+    "url": "https://arize.com"
+  },
+  "repository": "https://github.com/Arize-ai/arize-claude-code-plugin",
+  "license": "Apache-2.0",
+  "keywords": [
+    "arize",
+    "observability",
+    "graphql",
+    "traces",
+    "analytics",
+    "ml-platform"
+  ]
+}
