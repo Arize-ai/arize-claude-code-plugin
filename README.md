@@ -21,6 +21,18 @@ This installs:
 - `claude-code-tracing@arize-claude-plugin`
 - `arize-platform@arize-claude-plugin`
 
+### Alternative: Manual Installation (Tracing Only)
+
+If you prefer not to use the plugin marketplace, you can manually install the tracing plugin:
+
+```bash
+git clone https://github.com/Arize-ai/arize-claude-code-plugin.git
+cd arize-claude-code-plugin
+./install.sh
+```
+
+**Note:** This copies hooks to `~/.claude/hooks/` and configures them in `~/.claude/settings.json`. The `arize-platform` plugin skills are only available via marketplace installation.
+
 ---
 
 # Claude Code Tracing
@@ -152,13 +164,6 @@ ARIZE_VERBOSE=true claude
 
 ## Troubleshooting
 
-### "jq is required but not installed"
-
-Install jq:
-- macOS: `brew install jq`
-- Ubuntu: `sudo apt-get install jq`
-- Fedora: `sudo dnf install jq`
-
 ### Traces not appearing
 
 1. Check `ARIZE_TRACE_ENABLED` is `true`
@@ -239,46 +244,6 @@ Manage datasets in Arize AI using the `ax` CLI.
 - Pagination for large result sets
 - Profile-specific operations
 
-## Usage
-
-### Setting up the CLI
-
-```bash
-# Use the skill to guide you through setup
-/setup-arize-cli
-
-# Or install manually
-pip install arize-ax-cli
-ax config init
-```
-
-### Managing Datasets
-
-```bash
-# List all datasets
-ax datasets list
-
-# Create a dataset
-ax datasets create --file data.csv --name "Training Data"
-
-# Get dataset by ID
-ax datasets get ds_abc123
-
-# Export dataset
-ax datasets get ds_abc123 --output csv > export.csv
-
-# Delete dataset
-ax datasets delete ds_abc123
-```
-
-For comprehensive guidance, use the `/arize-datasets` skill which includes:
-- Finding dataset IDs by name
-- Complete workflows and examples
-- Troubleshooting common issues
-- Scripting patterns with jq
-
----
-
 ## Uninstall
 
 **Plugin marketplace:**
@@ -294,7 +259,9 @@ For comprehensive guidance, use the `/arize-datasets` skill which includes:
 claude plugin remove arize-claude-plugin
 ```
 
-**Manual install (tracing only):**
+**Alternative: Manual uninstall (tracing only):**
+
+For plugins installed with `./install.sh`:
 
 ```bash
 cd arize-claude-code-plugin
