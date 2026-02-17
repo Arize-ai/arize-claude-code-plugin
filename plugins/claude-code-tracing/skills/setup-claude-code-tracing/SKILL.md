@@ -7,12 +7,22 @@ description: Set up and configure Arize tracing for Claude Code sessions. Use wh
 
 Configure OpenInference tracing for Claude Code sessions to Arize AX (cloud) or Phoenix (self-hosted).
 
-## Decision Tree
+## How to Use This Skill
 
-1. **User already has credentials** → Go to [Configure Local Project](#configure-local-project)
-2. **User needs to set up Phoenix** → Go to [Set Up Phoenix](#set-up-phoenix)
-3. **User needs to create an Arize AX project** → Go to [Set Up Arize AX](#set-up-arize-ax)
-4. **User wants to troubleshoot** → Go to [Troubleshoot](#troubleshoot)
+**This skill follows a decision tree workflow.** Start by asking the user where they are in the setup process:
+
+1. **Do they already have credentials?**
+   - ✅ Yes → Jump to [Configure Settings](#configure-settings)
+   - ❌ No → Continue to step 2
+
+2. **Which backend do they want to use?**
+   - 🐦 Phoenix (self-hosted) → Go to [Set Up Phoenix](#set-up-phoenix)
+   - ☁️ Arize AX (cloud) → Go to [Set Up Arize AX](#set-up-arize-ax)
+
+3. **Are they troubleshooting?**
+   - 🔧 Yes → Jump to [Troubleshoot](#troubleshoot)
+
+**Important:** Only follow the relevant path for the user's needs. Don't go through all sections.
 
 ## Set Up Phoenix
 
@@ -75,19 +85,30 @@ Then proceed to [Configure Local Project](#configure-local-project).
 
 ## Configure Settings
 
-Add tracing env vars to `~/.claude/settings.json` — the same file where the plugin's hooks are configured. Preserve all existing settings (hooks, enabledPlugins, etc.) — only add/update keys under `"env"`.
+Before configuring, ask the user:
+
+**"Do you want to configure tracing globally or for this project only?"**
+- **Globally** → `~/.claude/settings.json` (applies to all projects)
+- **Project-local** → `.claude/settings.local.json` (applies only to this project)
+
+**Recommendation**: Use project-local for different backends per project (e.g., dev Phoenix vs prod Arize).
 
 ### Ask the user for:
 
-1. **Backend choice** (if not already determined): Phoenix or Arize AX
-2. **Credentials**:
+1. **Scope** (if not already determined): Global or project-local
+2. **Backend choice**: Phoenix or Arize AX
+3. **Credentials**:
    - Phoenix: endpoint URL (default: `http://localhost:6006`), optional API key
    - Arize AX: API key and Space ID
-3. **Project name** (optional): defaults to `claude-code`
+4. **Project name** (optional): defaults to workspace name
 
 ### Write the config
 
-Read `~/.claude/settings.json`, then merge the appropriate env vars into the existing `"env"` object.
+**Determine the config file:**
+- Global: `~/.claude/settings.json`
+- Project-local: `.claude/settings.local.json` (create directory if needed: `mkdir -p .claude`)
+
+Read the file (or create `{}` if it doesn't exist), then merge env vars into the `"env"` object.
 
 **Phoenix:**
 ```json
@@ -114,6 +135,14 @@ If the user has a Phoenix API key, also set `"PHOENIX_API_KEY": "<key>"`.
 
 If a custom project name was provided, also set `"ARIZE_PROJECT_NAME": "<name>"`.
 
+**Example workflow:**
+```bash
+# For project-local
+mkdir -p .claude
+echo '{}' > .claude/settings.local.json
+# Then use jq or editor to add env vars
+```
+
 ### Validate
 
 **Phoenix**: Run `curl -sf <endpoint>/v1/traces >/dev/null` to check connectivity. Warn if unreachable but note it may just not be running yet.
@@ -123,12 +152,16 @@ If a custom project name was provided, also set `"ARIZE_PROJECT_NAME": "<name>"`
 ### Confirm
 
 Tell the user:
-- Configuration saved to `~/.claude/settings.json` alongside hook config
+- Configuration saved to the chosen file:
+  - Global: `~/.claude/settings.json`
+  - Project-local: `.claude/settings.local.json`
 - Restart the Claude Code session for tracing to take effect
 - After restarting, traces will appear in their Phoenix UI or Arize AX dashboard under the project name
 - Mention `ARIZE_DRY_RUN=true` to test without sending data
 - Mention `ARIZE_VERBOSE=true` for debug output
 - Logs are written to `/tmp/arize-claude-code.log`
+
+**Note**: Project-local settings override global settings for the same variables.
 
 ## Troubleshoot
 
