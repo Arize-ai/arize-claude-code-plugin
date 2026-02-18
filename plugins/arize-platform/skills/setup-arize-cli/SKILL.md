@@ -10,8 +10,7 @@ Install and configure the Arize AX CLI for streamlined interaction with the Ariz
 ## What is the Arize AX CLI?
 
 The Arize AX CLI is the official command-line tool for Arize AI that enables users to:
-- Manage datasets (create, list, update, delete)
-- Organize ML projects
+- Interact with the arize platform via an API key
 - Export data in multiple formats (JSON, CSV, Parquet)
 - Maintain multiple configuration profiles for different environments
 
