@@ -41,22 +41,26 @@ This will guide the user through two configuration modes:
 
 Best for most users. The CLI will prompt for:
 
-1. **API Key** - The user's Arize API key
+1. **API Key** (required) - The user's Arize API key
    - Find at: https://app.arize.com → Settings → API Keys
    - The CLI auto-detects `ARIZE_API_KEY` environment variable if set
 
-2. **Region** - Choose the Arize region:
+2. **Space ID** (required) - The user's Arize space identifier
+   - Find at: https://app.arize.com → Settings → Space Settings
+   - The CLI auto-detects `ARIZE_SPACE_ID` environment variable if set
+
+3. **Region** (optional) - Choose the Arize region:
    - `us` - US region (most common)
    - `eu` - EU region
    - The CLI auto-detects `ARIZE_REGION` if set
 
-3. **Output Format** - Default output format:
+4. **Output Format** - Default output format:
    - `table` - Human-readable tables (recommended for interactive use)
    - `json` - JSON output (good for scripting)
    - `csv` - CSV format
    - `parquet` - Parquet format
 
-4. **Profile Name** - Name for this configuration (default: `default`)
+5. **Profile Name** - Name for this configuration (default: `default`)
 
 #### Advanced Mode
 
@@ -134,46 +138,53 @@ space_id: ${ARIZE_SPACE_ID}
 During setup, `ax config init` will automatically detect and offer to use existing:
 - `ARIZE_API_KEY`
 - `ARIZE_SPACE_ID`
-- `ARIZE_REGION`
 
-### Persisting Environment Variables
+### CLI Environment Variable Mapping
 
-If using environment variable references, persist them in your shell profile:
+The following environment variables map to CLI config fields per [setup.py](https://github.com/Arize-ai/arize-ax-cli/blob/main/src/ax/config/setup.py) and [schema.py](https://github.com/Arize-ai/arize-ax-cli/blob/main/src/ax/config/schema.py):
 
-**For Bash** (`~/.bashrc` or `~/.bash_profile`):
+| Environment Variable | CLI Config Field | Required | Default |
+|---|---|---|---|
+| `ARIZE_API_KEY` | `api_key` | Yes | — |
+| `ARIZE_SPACE_ID` | `space_id` | Yes | — |
+| `ARIZE_REGION` | `region` | No | `""` (use routing fields below if not set) |
+| `ARIZE_SINGLE_HOST` | `single_host` | No | `""` |
+| `ARIZE_SINGLE_PORT` | `single_port` | No | `""` |
+| `ARIZE_BASE_DOMAIN` | `base_domain` | No | `""` |
+| `ARIZE_API_HOST` | `api_host` | No | `api.arize.com` |
+| `ARIZE_API_SCHEME` | `api_scheme` | No | `https` |
+| `ARIZE_OTLP_HOST` | `otlp_host` | No | `otlp.arize.com` |
+| `ARIZE_OTLP_SCHEME` | `otlp_scheme` | No | `https` |
+| `ARIZE_FLIGHT_HOST` | `flight_host` | No | `flight.arize.com` |
+| `ARIZE_FLIGHT_PORT` | `flight_port` | No | `443` |
+| `ARIZE_FLIGHT_SCHEME` | `flight_scheme` | No | `grpc+tls` |
+
+**Routing note**: Only one routing strategy is allowed — set `region`, `single_host`/`single_port`, or `base_domain`, not a combination.
+
+### Persisting Environment Variables in Claude Code Settings
+
+Optionally, credentials can be persisted for Claude sessions via the project's `.claude/settings.local.json` file. This makes them available to both Claude and the AX CLI without modifying shell profiles.
+
+If the user wants to persist credentials, read the existing file (or create `{}` if it doesn't exist), then merge the `ARIZE_*` env vars into the `"env"` object. Only include the variables the user provides:
+
+```json
+{
+  "env": {
+    "ARIZE_API_KEY": "your-api-key-here",
+    "ARIZE_SPACE_ID": "your-space-id-here"
+  }
+}
+```
+
+Create the directory and file if needed:
 ```bash
-export ARIZE_API_KEY="your-api-key-here"
-export ARIZE_SPACE_ID="your-space-id-here"
-export ARIZE_REGION="us"
+mkdir -p .claude
+# Then read/merge env vars into .claude/settings.local.json
 ```
 
-**For Zsh** (`~/.zshrc`):
-```bash
-export ARIZE_API_KEY="your-api-key-here"
-export ARIZE_SPACE_ID="your-space-id-here"
-export ARIZE_REGION="us"
-```
+**Note**: If a `settings.local.json` already exists, merge into the existing `"env"` object rather than overwriting the file — other settings (hooks, tracing, etc.) may already be configured.
 
-**For Fish** (`~/.config/fish/config.fish`):
-```fish
-set -x ARIZE_API_KEY "your-api-key-here"
-set -x ARIZE_SPACE_ID "your-space-id-here"
-set -x ARIZE_REGION "us"
-```
-
-After adding these, reload your shell:
-```bash
-# Bash
-source ~/.bashrc
-
-# Zsh
-source ~/.zshrc
-
-# Fish
-source ~/.config/fish/config.fish
-```
-
-**Recommendation**: Use environment variables for sensitive credentials, especially in shared or team environments.
+**Recommendation**: Use `settings.local.json` for project-specific credentials. This keeps them out of shell profiles and scoped to the project.
 
 ## Shell Completion
 
@@ -254,27 +265,20 @@ The CLI isn't installed or not in PATH:
 
 If the config references environment variables that aren't set:
 
-1. Check if environment variables are set:
+1. Check if environment variables are set in `.claude/settings.local.json`:
    ```bash
-   echo $ARIZE_API_KEY
-   echo $ARIZE_SPACE_ID
+   cat .claude/settings.local.json
    ```
-2. If empty, set them for the current session:
-   ```bash
-   export ARIZE_API_KEY="your-api-key"
-   export ARIZE_SPACE_ID="your-space-id"
+2. If missing, add them to the `"env"` object in `.claude/settings.local.json`:
+   ```json
+   {
+     "env": {
+       "ARIZE_API_KEY": "your-api-key",
+       "ARIZE_SPACE_ID": "your-space-id"
+     }
+   }
    ```
-3. To persist, add to your shell profile:
-   ```bash
-   # For Zsh
-   echo 'export ARIZE_API_KEY="your-api-key"' >> ~/.zshrc
-   echo 'export ARIZE_SPACE_ID="your-space-id"' >> ~/.zshrc
-   source ~/.zshrc
-
-   # For Bash
-   echo 'export ARIZE_API_KEY="your-api-key"' >> ~/.bashrc
-   source ~/.bashrc
-   ```
+3. Restart the Claude Code session for the new env vars to take effect
 4. Verify with `ax config show --expand` to see resolved values
 
 ## Next Steps
@@ -291,17 +295,13 @@ When a user asks to set up the CLI:
 
 1. **Check if installed**: Run `ax --version`
 2. **If not installed**: Run `pip install arize-ax-cli`
-3. **Determine credential storage approach**:
-   - Ask: "Would you like to store credentials directly in the config file, or use environment variables?"
-   - **If environment variables**: Offer to help persist them in shell profile
+3. **Optionally persist credentials**: Offer to save env vars to `.claude/settings.local.json`
+   - If the user wants to persist, read the existing file (or create `{}` if it doesn't exist)
+   - Merge only the provided variables (e.g. `ARIZE_API_KEY`, `ARIZE_SPACE_ID`) into the `"env"` object
+   - Create the `.claude` directory if needed: `mkdir -p .claude`
 4. **Configure**: Run `ax config init` (use simple mode unless user specifies otherwise)
-5. **If using environment variables**:
-   - Detect shell type (bash/zsh/fish)
-   - Offer to add export statements to the appropriate profile file
-   - Example: `echo 'export ARIZE_API_KEY="xxx"' >> ~/.zshrc`
-   - Reload shell: `source ~/.zshrc`
-6. **Verify**: Run `ax config show` and `ax datasets list` to confirm setup
-7. **Enable completion** (optional): Offer to install shell completion
+5. **Verify**: Run `ax config show` and `ax datasets list` to confirm setup
+6. **Enable completion** (optional): Offer to install shell completion
 
 If user needs multiple profiles (e.g., dev/staging/prod):
 1. Create first profile: `ax config init` (name it appropriately)

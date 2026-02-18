@@ -7,7 +7,7 @@ Official Claude Code plugins from Arize AI for enhanced observability and platfo
 This repository contains the following plugins:
 
 1. **[claude-code-tracing](#claude-code-tracing)** — Automatic tracing of Claude Code sessions to Arize AX or Phoenix
-2. **[arize-platform](#arize-platform)** — Skills for managing datasets and working with the Arize AX CLI
+2. **[arize-platform](#arize-platform)** — Skills for managing projects, datasets, and working with the Arize AX CLI
 
 ## Installation
 
@@ -195,15 +195,16 @@ Note: Phoenix does not require Python — it uses the REST API directly.
 
 # Arize Platform
 
-Skills for working with the Arize AX platform, including CLI setup and dataset management.
+Skills for working with the Arize AX platform, including CLI setup, project management, and dataset management.
 
 ## Features
 
 - **CLI Setup** — Install and configure the Arize AX CLI
+- **Project Management** — Create, list, get, and delete projects
 - **Dataset Management** — Create, list, export, and delete datasets
 - **Multiple Profiles** — Support for dev/staging/prod environments
 - **Environment Variable Management** — Persist credentials securely
-- **ID Extraction** — Find and use dataset IDs programmatically
+- **ID Extraction** — Find and use project/dataset IDs programmatically
 
 ## Skills
 
@@ -224,6 +225,23 @@ Install and configure the Arize AX CLI for interacting with the Arize AI platfor
 - Environment variable persistence
 - Shell completion setup
 - Multi-profile management
+
+### `/arize-projects`
+
+Manage projects in Arize AI using the `ax` CLI.
+
+**Use when:**
+- Listing all projects in a space
+- Getting project details by name or ID
+- Creating new projects
+- Deleting projects
+- Working with projects across multiple environments
+
+**Key capabilities:**
+- Project CRUD operations
+- Name-to-ID resolution (find project IDs by name)
+- Cursor-based pagination
+- Profile-specific operations
 
 ### `/arize-datasets`
 
