@@ -15,12 +15,32 @@ The Arize AX CLI is the official command-line tool for Arize AI that enables use
 - Export data in multiple formats (JSON, CSV, Parquet)
 - Maintain multiple configuration profiles for different environments
 
-## Installation
+## Workflow
 
-### Step 1: Install via pip
+When a user asks to set up the CLI, follow these steps exactly:
+
+### Step 1: Check if installed
 
 ```bash
-pip install arize-ax-cli
+ax --version 2>&1 || echo "NOT_INSTALLED"
+```
+
+### Step 2: Install if needed
+
+If not installed, use `pipx` (recommended for CLI tools, avoids externally-managed-environment errors on macOS/Homebrew):
+
+```bash
+# Install pipx if not available
+brew install pipx 2>/dev/null || pip3 install --user pipx
+pipx ensurepath
+
+# Install the CLI
+pipx install arize-ax-cli
+```
+
+If `pipx` is not an option, fall back to:
+```bash
+pip3 install arize-ax-cli
 ```
 
 Verify installation:
@@ -28,50 +48,120 @@ Verify installation:
 ax --version
 ```
 
-### Step 2: Initial Configuration
+### Step 3: Collect configuration from user
 
-Run the interactive setup:
+Ask the user for exactly three things using AskUserQuestion:
+
+1. **API Key** — Their Arize API key (found at https://app.arize.com → Settings → API Keys)
+   - Options: "Use env var $ARIZE_API_KEY" or "Other" (to paste a key)
+2. **Profile Name** — Name for this config profile (default: `default`)
+   - Options: "default (Recommended)", or "Other" (to enter a custom name)
+3. **Output Format** — Default output format
+   - Options: "table (Recommended)", "json", "csv", "parquet"
+
+### Step 4: Write config directly
+
+**Important**: Do NOT run `ax config init` — it uses interactive arrow-key prompts that cannot be automated in a non-interactive shell. Instead, write the config file directly.
+
+#### Config file locations
+
+The CLI uses TOML format with these paths (per [manager.py](https://github.com/Arize-ai/arize-ax-cli/blob/main/src/ax/config/manager.py)):
+- **Default config**: `~/.arize/config.toml`
+- **Named profiles**: `~/.arize/profiles/{profile_name}.toml`
+- **Active profile marker**: `~/.arize/.active_profile`
+
 ```bash
-ax config init
+# Ensure directories exist
+mkdir -p ~/.arize/profiles
 ```
 
-This will guide the user through two configuration modes:
+#### Config schema
 
-#### Simple Mode (Recommended)
+The config is validated by a Pydantic model with `extra = "forbid"` (per [schema.py](https://github.com/Arize-ai/arize-ax-cli/blob/main/src/ax/config/schema.py)). Only include sections with non-default values — empty values are stripped on save.
 
-Best for most users. The CLI will prompt for:
+Valid top-level sections and all fields (per [schema.py](https://github.com/Arize-ai/arize-ax-cli/blob/main/src/ax/config/schema.py)):
 
-1. **API Key** (required) - The user's Arize API key
-   - Find at: https://app.arize.com → Settings → API Keys
-   - The CLI auto-detects `ARIZE_API_KEY` environment variable if set
+| Section | Field | Default | When to set |
+|---|---|---|---|
+| `[profile]` | `name` | `"default"` | Always include. Use a custom name for multi-profile setups. |
+| `[auth]` | `api_key` | (required) | **Always include.** Only required field. Use `"${ARIZE_API_KEY}"` to reference env var. |
+| `[routing]` | `region` | `""` | Only if user needs a specific region. Valid: `ca-central-1a`, `eu-west-1a`, `us-central-1a`, `us-east-1b`. |
+| `[routing]` | `single_host` | `""` | Only for on-premise deployments. |
+| `[routing]` | `single_port` | `""` | Only for on-premise deployments (pair with `single_host`). |
+| `[routing]` | `base_domain` | `""` | Only for Private Connect deployments. |
+| `[routing]` | `api_host` | `"api.arize.com"` | Only for custom endpoint overrides. |
+| `[routing]` | `api_scheme` | `"https"` | Only for custom endpoint overrides. |
+| `[routing]` | `otlp_host` | `"otlp.arize.com"` | Only for custom endpoint overrides. |
+| `[routing]` | `otlp_scheme` | `"https"` | Only for custom endpoint overrides. |
+| `[routing]` | `flight_host` | `"flight.arize.com"` | Only for custom endpoint overrides. |
+| `[routing]` | `flight_port` | `"443"` | Only for custom endpoint overrides. |
+| `[routing]` | `flight_scheme` | `"grpc+tls"` | Only for custom endpoint overrides. |
+| `[transport]` | `stream_max_workers` | `8` | Only for performance tuning. |
+| `[transport]` | `stream_max_queue_bound` | `5000` | Only for performance tuning. |
+| `[transport]` | `pyarrow_max_chunksize` | `10000` | Only for performance tuning. |
+| `[transport]` | `max_http_payload_size_mb` | `8` | Only for performance tuning. |
+| `[security]` | `request_verify` | `true` | Only set to `false` for self-signed certs (on-premise). |
+| `[storage]` | `directory` | `"~/.arize"` | Only to change cache location. |
+| `[storage]` | `cache_enabled` | `true` | Only to disable caching. |
+| `[output]` | `format` | `"table"` | Always include. Options: `table`, `json`, `csv`, `parquet`. |
 
-2. **Space ID** (required) - The user's Arize space identifier
-   - Find at: https://app.arize.com → Settings → Space Settings
-   - The CLI auto-detects `ARIZE_SPACE_ID` environment variable if set
+**For most users, only `[profile]`, `[auth]`, and `[output]` are needed.** Omit all other sections — defaults work out of the box.
 
-3. **Region** (optional) - Choose the Arize region:
-   - `us` - US region (most common)
-   - `eu` - EU region
-   - The CLI auto-detects `ARIZE_REGION` if set
+**Routing constraint**: Only one routing strategy is allowed — set `region`, `single_host`/`single_port`, or `base_domain`, not a combination. Omit `[routing]` entirely for default behavior.
 
-4. **Output Format** - Default output format:
-   - `table` - Human-readable tables (recommended for interactive use)
-   - `json` - JSON output (good for scripting)
-   - `csv` - CSV format
-   - `parquet` - Parquet format
+#### Minimal config example
 
-5. **Profile Name** - Name for this configuration (default: `default`)
+For the default profile, write `~/.arize/config.toml`:
 
-#### Advanced Mode
+```toml
+[profile]
+name = "default"
 
-For on-premise deployments, Private Connect, or custom configurations. Provides control over:
-- Routing strategies
-- Transport optimization
-- Security settings
-- Custom endpoints
-- Storage configuration
+[auth]
+api_key = "${ARIZE_API_KEY}"
 
-Only use if the user specifically needs advanced configuration.
+[output]
+format = "table"
+```
+
+For a named profile (e.g., "production"), write `~/.arize/profiles/production.toml`:
+
+```toml
+[profile]
+name = "production"
+
+[auth]
+api_key = "${ARIZE_API_KEY}"
+
+[output]
+format = "json"
+```
+
+Environment variables are expanded at load time using `${VAR}` or `${VAR:default}` syntax.
+
+### Step 5: Optionally persist credentials in Claude Code settings
+
+Offer to save env vars to `.claude/settings.local.json` so they're available in Claude Code sessions:
+
+If the user wants to persist, read the existing file (or create `{}` if it doesn't exist), then merge `ARIZE_API_KEY` into the `"env"` object:
+
+```json
+{
+  "env": {
+    "ARIZE_API_KEY": "your-api-key-here"
+  }
+}
+```
+
+Create the directory if needed: `mkdir -p .claude`
+
+**Note**: If `settings.local.json` already exists, merge into the existing `"env"` object — other settings may already be configured.
+
+### Step 6: Verify
+
+```bash
+ax config show
+```
 
 ## Managing Configuration Profiles
 
@@ -95,96 +185,10 @@ ax config show --expand
 ax config use <profile-name>
 ```
 
-Example:
-```bash
-ax config use production
-ax config use staging
-```
-
 ### Delete a Profile
 ```bash
 ax config delete <profile-name>
 ```
-
-## Configuration Files
-
-Configurations are stored at:
-- **Linux/macOS**: `~/.arize/config/`
-- **Windows**: `%USERPROFILE%\.arize\config\`
-
-Each profile has its own configuration file named `<profile-name>.yaml`.
-
-## Using Environment Variables
-
-The CLI configuration supports two approaches:
-
-### Approach 1: Store Values Directly in Config
-The `ax config init` process stores API keys and credentials directly in `~/.arize/config/<profile>.yaml`.
-
-**Pros**: No need to set environment variables each session
-**Cons**: Credentials stored in plaintext files
-
-### Approach 2: Reference Environment Variables
-Store references to environment variables in the config instead:
-
-```yaml
-api_key: ${ARIZE_API_KEY}
-space_id: ${ARIZE_SPACE_ID}
-```
-
-**Pros**: More secure, easier to rotate credentials, portable across machines
-**Cons**: Must set environment variables before using the CLI
-
-During setup, `ax config init` will automatically detect and offer to use existing:
-- `ARIZE_API_KEY`
-- `ARIZE_SPACE_ID`
-
-### CLI Environment Variable Mapping
-
-The following environment variables map to CLI config fields per [setup.py](https://github.com/Arize-ai/arize-ax-cli/blob/main/src/ax/config/setup.py) and [schema.py](https://github.com/Arize-ai/arize-ax-cli/blob/main/src/ax/config/schema.py):
-
-| Environment Variable | CLI Config Field | Required | Default |
-|---|---|---|---|
-| `ARIZE_API_KEY` | `api_key` | Yes | — |
-| `ARIZE_SPACE_ID` | `space_id` | Yes | — |
-| `ARIZE_REGION` | `region` | No | `""` (use routing fields below if not set) |
-| `ARIZE_SINGLE_HOST` | `single_host` | No | `""` |
-| `ARIZE_SINGLE_PORT` | `single_port` | No | `""` |
-| `ARIZE_BASE_DOMAIN` | `base_domain` | No | `""` |
-| `ARIZE_API_HOST` | `api_host` | No | `api.arize.com` |
-| `ARIZE_API_SCHEME` | `api_scheme` | No | `https` |
-| `ARIZE_OTLP_HOST` | `otlp_host` | No | `otlp.arize.com` |
-| `ARIZE_OTLP_SCHEME` | `otlp_scheme` | No | `https` |
-| `ARIZE_FLIGHT_HOST` | `flight_host` | No | `flight.arize.com` |
-| `ARIZE_FLIGHT_PORT` | `flight_port` | No | `443` |
-| `ARIZE_FLIGHT_SCHEME` | `flight_scheme` | No | `grpc+tls` |
-
-**Routing note**: Only one routing strategy is allowed — set `region`, `single_host`/`single_port`, or `base_domain`, not a combination.
-
-### Persisting Environment Variables in Claude Code Settings
-
-Optionally, credentials can be persisted for Claude sessions via the project's `.claude/settings.local.json` file. This makes them available to both Claude and the AX CLI without modifying shell profiles.
-
-If the user wants to persist credentials, read the existing file (or create `{}` if it doesn't exist), then merge the `ARIZE_*` env vars into the `"env"` object. Only include the variables the user provides:
-
-```json
-{
-  "env": {
-    "ARIZE_API_KEY": "your-api-key-here",
-    "ARIZE_SPACE_ID": "your-space-id-here"
-  }
-}
-```
-
-Create the directory and file if needed:
-```bash
-mkdir -p .claude
-# Then read/merge env vars into .claude/settings.local.json
-```
-
-**Note**: If a `settings.local.json` already exists, merge into the existing `"env"` object rather than overwriting the file — other settings (hooks, tracing, etc.) may already be configured.
-
-**Recommendation**: Use `settings.local.json` for project-specific credentials. This keeps them out of shell profiles and scoped to the project.
 
 ## Shell Completion
 
@@ -199,24 +203,6 @@ ax --install-completion zsh
 
 # Fish
 ax --install-completion fish
-
-# PowerShell
-ax --install-completion powershell
-```
-
-## Verification
-
-After setup, verify everything works:
-
-```bash
-# Check version
-ax --version
-
-# View configuration
-ax config show
-
-# Test with a simple command
-ax datasets list
 ```
 
 ## Troubleshooting
@@ -224,87 +210,44 @@ ax datasets list
 ### "ax: command not found"
 
 The CLI isn't installed or not in PATH:
-1. Verify installation: `pip show arize-ax-cli`
-2. Try reinstalling: `pip install --upgrade arize-ax-cli`
-3. Check if pip's bin directory is in PATH
+1. If installed via pipx: `pipx ensurepath` and restart shell
+2. Try reinstalling: `pipx install --force arize-ax-cli`
+3. Check PATH includes `~/.local/bin`
+
+### "externally-managed-environment" error during install
+
+This happens on macOS with Homebrew Python. Use `pipx` instead of `pip`:
+```bash
+brew install pipx
+pipx ensurepath
+pipx install arize-ax-cli
+```
+
+### "Profile 'default' not found"
+
+The config file doesn't exist or is malformed. Write `~/.arize/config.toml` directly with the correct TOML format (see Step 4).
+
+### "Invalid region" error
+
+Region values must be one of: `ca-central-1a`, `eu-west-1a`, `us-central-1a`, `us-east-1b`. If unsure, omit the `[routing]` section entirely — the CLI will use default routing.
 
 ### "Authentication failed" or "Invalid API key"
 
-1. Verify API key is correct:
-   ```bash
-   ax config show --expand
-   ```
-2. Generate a new API key at https://app.arize.com
-3. Update configuration:
-   ```bash
-   ax config init
-   ```
+1. Verify API key is correct: `ax config show --expand`
+2. Generate a new API key at https://app.arize.com → Settings → API Keys
+3. Update `~/.arize/config.toml` with the new key
 
-### "Region not found" or Connection errors
+### "Environment variable not found"
 
-1. Check region setting:
-   ```bash
-   ax config show
-   ```
-2. Verify network connectivity to Arize services
-3. For on-premise: Use advanced mode to configure custom endpoints
-
-### Cannot switch profiles
-
-1. List available profiles:
-   ```bash
-   ax config list
-   ```
-2. Ensure the profile name is correct (case-sensitive)
-3. Create the profile if it doesn't exist:
-   ```bash
-   ax config init
-   ```
-
-### "Environment variable not found" or Config uses ${ARIZE_API_KEY}
-
-If the config references environment variables that aren't set:
-
-1. Check if environment variables are set in `.claude/settings.local.json`:
-   ```bash
-   cat .claude/settings.local.json
-   ```
-2. If missing, add them to the `"env"` object in `.claude/settings.local.json`:
-   ```json
-   {
-     "env": {
-       "ARIZE_API_KEY": "your-api-key",
-       "ARIZE_SPACE_ID": "your-space-id"
-     }
-   }
-   ```
-3. Restart the Claude Code session for the new env vars to take effect
-4. Verify with `ax config show --expand` to see resolved values
+If the config references `${ARIZE_API_KEY}` but it's not set:
+1. Set it in your shell: `export ARIZE_API_KEY="your-key"`
+2. Or add it to `.claude/settings.local.json` under `"env"`
+3. Restart the Claude Code session for new env vars to take effect
 
 ## Next Steps
 
 After setup, users can:
 - Use `/arize-datasets` skill to manage datasets
-- Run `ax datasets list` to see available datasets
+- Use `/arize-projects` skill to manage projects∂∂
 - Run `ax --help` to explore all commands
 - Visit https://docs.arize.com for full documentation
-
-## Workflow
-
-When a user asks to set up the CLI:
-
-1. **Check if installed**: Run `ax --version`
-2. **If not installed**: Run `pip install arize-ax-cli`
-3. **Optionally persist credentials**: Offer to save env vars to `.claude/settings.local.json`
-   - If the user wants to persist, read the existing file (or create `{}` if it doesn't exist)
-   - Merge only the provided variables (e.g. `ARIZE_API_KEY`, `ARIZE_SPACE_ID`) into the `"env"` object
-   - Create the `.claude` directory if needed: `mkdir -p .claude`
-4. **Configure**: Run `ax config init` (use simple mode unless user specifies otherwise)
-5. **Verify**: Run `ax config show` and `ax datasets list` to confirm setup
-6. **Enable completion** (optional): Offer to install shell completion
-
-If user needs multiple profiles (e.g., dev/staging/prod):
-1. Create first profile: `ax config init` (name it appropriately)
-2. Create additional profiles: `ax config init` (use different names)
-3. Show how to switch: `ax config use <profile-name>`
-4. Consider using environment variables with different variable names per environment
