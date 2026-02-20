@@ -1,0 +1,37 @@
+{
+  "name": "arize-claude-code-plugin",
+  "version": "1.0.0",
+  "description": "Arize AI tracing and observability for Claude Code — works with both the CLI and Agent SDK",
+  "main": "sdk.js",
+  "types": "sdk.d.ts",
+  "exports": {
+    ".": {
+      "import": "./sdk.mjs",
+      "require": "./sdk.js",
+      "types": "./sdk.d.ts"
+    }
+  },
+  "files": [
+    "sdk.js",
+    "sdk.mjs",
+    "sdk.d.ts",
+    "plugins/claude-code-tracing/hooks/",
+    "plugins/claude-code-tracing/scripts/"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Arize-ai/arize-claude-code-plugin.git"
+  },
+  "keywords": [
+    "claude-code",
+    "arize",
+    "phoenix",
+    "tracing",
+    "observability",
+    "openinference",
+    "agent-sdk"
+  ],
+  "author": "Arize AI <support@arize.com>",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/Arize-ai/arize-claude-code-plugin"
+}

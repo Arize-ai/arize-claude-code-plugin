@@ -2,6 +2,8 @@
 
 Official Claude Code plugins from Arize AI for enhanced observability and platform integration.
 
+Works with both the **Claude Code CLI** and the **Claude Code Agent SDK** (`@anthropic-ai/claude-code`).
+
 ## What's Included
 
 This repository contains the following plugins:
@@ -10,6 +12,8 @@ This repository contains the following plugins:
 2. **[arize-platform](#arize-platform)** — Skills for managing projects, datasets, and working with the Arize AX CLI
 
 ## Installation
+
+### Option A: Claude Code CLI (Plugin Marketplace)
 
 Install all plugins from the marketplace:
 
@@ -21,7 +25,52 @@ This installs:
 - `claude-code-tracing@arize-claude-plugin`
 - `arize-platform@arize-claude-plugin`
 
-### Alternative: Manual Installation (Tracing Only)
+### Option B: Claude Code Agent SDK (Programmatic)
+
+Install the package from GitHub:
+
+```bash
+npm install github:Arize-ai/arize-claude-code-plugin
+```
+
+Then pass the tracing hooks when calling `claude()`:
+
+```typescript
+import { claude } from "@anthropic-ai/claude-code";
+import { getTracingHooks } from "arize-claude-code-plugin";
+
+const result = await claude("your prompt", {
+  hooks: getTracingHooks(),
+});
+```
+
+Set environment variables in your process before calling `claude()`:
+
+```typescript
+// Phoenix (self-hosted)
+process.env.PHOENIX_ENDPOINT = "http://localhost:6006";
+process.env.ARIZE_TRACE_ENABLED = "true";
+
+// OR Arize AX (cloud)
+process.env.ARIZE_API_KEY = "your-api-key";
+process.env.ARIZE_SPACE_ID = "your-space-id";
+process.env.ARIZE_TRACE_ENABLED = "true";
+```
+
+CommonJS is also supported:
+
+```javascript
+const { claude } = require("@anthropic-ai/claude-code");
+const { getTracingHooks } = require("arize-claude-code-plugin");
+
+const result = await claude("your prompt", {
+  hooks: getTracingHooks(),
+});
+```
+
+See [Agent SDK Integration](#agent-sdk-integration) for full details.
+
+### Option C: Manual Installation (Tracing Only)
 
 If you prefer not to use the plugin marketplace, you can manually install the tracing plugin:
 
@@ -261,6 +310,87 @@ Manage datasets in Arize AI using the `ax` CLI.
 - ID extraction by name
 - Pagination for large result sets
 - Profile-specific operations
+
+---
+
+# Agent SDK Integration
+
+The tracing hooks work with the Claude Code Agent SDK (`@anthropic-ai/claude-code`) for programmatic usage. This lets you add Arize/Phoenix tracing to any application that uses Claude Code as a library.
+
+## Setup
+
+```bash
+npm install github:Arize-ai/arize-claude-code-plugin
+```
+
+System requirements are the same as the CLI plugin: `jq` and `curl` must be available, plus Python with `opentelemetry-proto` and `grpcio` if targeting Arize AX.
+
+## Usage
+
+### Basic
+
+```typescript
+import { claude } from "@anthropic-ai/claude-code";
+import { getTracingHooks } from "arize-claude-code-plugin";
+
+// Configure tracing target via environment variables
+process.env.PHOENIX_ENDPOINT = "http://localhost:6006";
+process.env.ARIZE_TRACE_ENABLED = "true";
+
+const result = await claude("Explain this codebase", {
+  hooks: getTracingHooks(),
+});
+```
+
+### Merging with Existing Hooks
+
+If you already have hooks configured, merge them with the tracing hooks:
+
+```typescript
+import { getTracingHooks } from "arize-claude-code-plugin";
+
+const tracingHooks = getTracingHooks();
+const myHooks = {
+  Stop: [{ hooks: [{ type: "command", command: "bash my-stop-hook.sh" }] }],
+};
+
+const result = await claude("your prompt", {
+  hooks: {
+    ...tracingHooks,
+    // Merge specific hook types by concatenating arrays
+    Stop: [...(tracingHooks.Stop || []), ...(myHooks.Stop || [])],
+  },
+});
+```
+
+### Optional Configuration
+
+All the same environment variables from the CLI plugin are supported:
+
+```typescript
+// Tracing target (pick one)
+process.env.PHOENIX_ENDPOINT = "http://localhost:6006"; // Phoenix
+process.env.PHOENIX_API_KEY = "...";                    // Phoenix auth (optional)
+process.env.ARIZE_API_KEY = "...";                      // Arize AX
+process.env.ARIZE_SPACE_ID = "...";                     // Arize AX
+
+// General options
+process.env.ARIZE_TRACE_ENABLED = "true";               // Enable tracing (default: true)
+process.env.ARIZE_PROJECT_NAME = "my-project";          // Project name (default: claude-code)
+process.env.ARIZE_DRY_RUN = "true";                     // Print spans instead of sending
+process.env.ARIZE_VERBOSE = "true";                     // Verbose logging
+process.env.ARIZE_LOG_FILE = "/tmp/my-app-traces.log";  // Log file path
+```
+
+## API Reference
+
+### `getTracingHooks()`
+
+Returns the complete hooks configuration object with all 9 hook types. Pass it directly to the `hooks` option of `claude()`.
+
+### `getHooksDir()`
+
+Returns the absolute path to the hooks script directory. Useful for building custom hook commands or inspecting the hook scripts.
 
 ## Uninstall
 
