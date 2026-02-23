@@ -137,11 +137,29 @@ send_to_arize() {
   local span_json="$1"
   local script="${PLUGIN_DIR}/scripts/send_span.py"
 
-  # Find python with opentelemetry
+  # Find python with opentelemetry (cached per session to avoid slow conda/pipx lookups)
   local py=""
-  for p in python3 /usr/bin/python3 "$HOME/miniconda3/bin/python3"; do
-    "$p" -c "import opentelemetry" 2>/dev/null && { py="$p"; break; }
-  done
+  local cached_py
+  cached_py=$(get_state "python_path")
+  if [[ -n "$cached_py" ]] && "$cached_py" -c "import opentelemetry" 2>/dev/null; then
+    py="$cached_py"
+  else
+    # Build candidate list: common paths + conda + pipx venvs
+    local candidates=(python3 /usr/bin/python3 /usr/local/bin/python3 "$HOME/.local/bin/python3")
+    local conda_base
+    conda_base=$(conda info --base 2>/dev/null) && [[ -n "$conda_base" ]] && candidates+=("${conda_base}/bin/python3")
+    local pipx_dir="${HOME}/.local/pipx/venvs"
+    [[ -d "$pipx_dir" ]] || pipx_dir="${HOME}/.local/share/pipx/venvs"
+    if [[ -d "$pipx_dir" ]]; then
+      for venv in "$pipx_dir"/*/bin/python3; do
+        [[ -x "$venv" ]] && candidates+=("$venv")
+      done
+    fi
+    for p in "${candidates[@]}"; do
+      "$p" -c "import opentelemetry" 2>/dev/null && { py="$p"; break; }
+    done
+    [[ -n "$py" ]] && set_state "python_path" "$py"
+  fi
 
   [[ -z "$py" ]] && { error "Python with opentelemetry not found. Run: pip install opentelemetry-proto grpcio"; return 1; }
   [[ ! -f "$script" ]] && { error "send_span.py not found"; return 1; }
