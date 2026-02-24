@@ -6,6 +6,8 @@ check_requirements
 input=$(cat 2>/dev/null || echo '{}')
 [[ -z "$input" ]] && input='{}'
 
+resolve_session "$input"
+
 _log_to_file "DEBUG permission_request input: $(echo "$input" | jq -c .)"
 
 trace_id=$(get_state "current_trace_id")

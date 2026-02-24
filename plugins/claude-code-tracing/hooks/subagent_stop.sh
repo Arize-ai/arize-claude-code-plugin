@@ -6,6 +6,8 @@ check_requirements
 input=$(cat 2>/dev/null || echo '{}')
 [[ -z "$input" ]] && input='{}'
 
+resolve_session "$input"
+
 trace_id=$(get_state "current_trace_id")
 [[ -z "$trace_id" ]] && exit 0
 

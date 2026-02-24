@@ -6,6 +6,8 @@ check_requirements
 input=$(cat 2>/dev/null || echo '{}')
 [[ -z "$input" ]] && input='{}'
 
+resolve_session "$input"
+
 session_id=$(get_state "session_id")
 [[ -z "$session_id" ]] && exit 0
 

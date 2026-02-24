@@ -1,26 +1,30 @@
 ---
 name: setup-claude-code-tracing
-description: Set up and configure Arize tracing for Claude Code sessions. Use when users want to set up tracing, configure Arize AX or Phoenix, create a new Arize project, get an API key, enable/disable tracing, or troubleshoot tracing issues. Triggers on "set up tracing", "configure Arize", "configure Phoenix", "enable tracing", "setup-claude-code-tracing", "create Arize project", "get Arize API key", or any request about connecting Claude Code to Arize or Phoenix for observability.
+description: Set up and configure Arize tracing for Claude Code sessions or Agent SDK applications. Use when users want to set up tracing, configure Arize AX or Phoenix, create a new Arize project, get an API key, enable/disable tracing, or troubleshoot tracing issues. Triggers on "set up tracing", "configure Arize", "configure Phoenix", "enable tracing", "setup-claude-code-tracing", "create Arize project", "get Arize API key", "agent sdk tracing", or any request about connecting Claude Code or the Agent SDK to Arize or Phoenix for observability.
 ---
 
 # Setup Tracing
 
-Configure OpenInference tracing for Claude Code sessions to Arize AX (cloud) or Phoenix (self-hosted).
+Configure OpenInference tracing for Claude Code sessions or Agent SDK applications to Arize AX (cloud) or Phoenix (self-hosted).
 
 ## How to Use This Skill
 
 **This skill follows a decision tree workflow.** Start by asking the user where they are in the setup process:
 
-1. **Do they already have credentials?**
-   - ✅ Yes → Jump to [Configure Settings](#configure-settings)
-   - ❌ No → Continue to step 2
+1. **Are they using the Claude Code CLI or the Agent SDK?**
+   - CLI → Continue to step 2
+   - Agent SDK (Python or TypeScript) → Go to [Agent SDK Setup](#agent-sdk-setup)
 
-2. **Which backend do they want to use?**
-   - 🐦 Phoenix (self-hosted) → Go to [Set Up Phoenix](#set-up-phoenix)
-   - ☁️ Arize AX (cloud) → Go to [Set Up Arize AX](#set-up-arize-ax)
+2. **Do they already have credentials?**
+   - Yes → Jump to [Configure Settings](#configure-settings)
+   - No → Continue to step 3
 
-3. **Are they troubleshooting?**
-   - 🔧 Yes → Jump to [Troubleshoot](#troubleshoot)
+3. **Which backend do they want to use?**
+   - Phoenix (self-hosted) → Go to [Set Up Phoenix](#set-up-phoenix)
+   - Arize AX (cloud) → Go to [Set Up Arize AX](#set-up-arize-ax)
+
+4. **Are they troubleshooting?**
+   - Yes → Jump to [Troubleshoot](#troubleshoot)
 
 **Important:** Only follow the relevant path for the user's needs. Don't go through all sections.
 
@@ -162,6 +166,122 @@ Tell the user:
 - Logs are written to `/tmp/arize-claude-code.log`
 
 **Note**: Project-local settings override global settings for the same variables.
+
+## Agent SDK Setup
+
+For users building with the [Claude Agent SDK](https://platform.claude.com/docs/en/agent-sdk/overview) (Python or TypeScript), the tracing plugin loads as a local plugin. **This section provides code and configuration for the developer to add to their application** — the agent cannot set this up at runtime since plugin paths and settings must be configured before the SDK session starts.
+
+**Important:** The user must use `ClaudeSDKClient` — the standalone `query()` function does **not** support hooks, so tracing will not work with it.
+
+### How to guide the user
+
+When a user asks about Agent SDK tracing setup, provide them with the steps below to integrate into their own code. Do NOT try to execute `export` commands or modify their application source — instead, give them the snippets to copy.
+
+### 1. Choose a backend
+
+Ask the user which backend they want. If they don't have credentials yet, walk them through [Set Up Phoenix](#set-up-phoenix) or [Set Up Arize AX](#set-up-arize-ax) first, then return here.
+
+### 2. Get the plugin path
+
+Ask the user: **"Have you already installed this plugin via the Claude Code CLI?"**
+
+**If yes (already installed via CLI):** They can reference it from the CLI cache. Tell them to check `~/.claude/plugins/installed_plugins.json` for the exact path, or use:
+```
+~/.claude/plugins/cache/arize-claude-plugin/claude-code-tracing/1.0.0
+```
+
+**If no:** Tell them to clone the repo into their project:
+```bash
+git clone https://github.com/Arize-ai/arize-claude-code-plugin.git
+```
+The plugin path will be `./arize-claude-code-plugin/plugins/claude-code-tracing`
+
+For Arize AX, they also need Python dependencies:
+```bash
+pip install opentelemetry-proto grpcio
+```
+
+### 3. Create a settings file
+
+The Agent SDK spawns a Claude Code subprocess that does **not** inherit the user's shell environment variables. Tracing credentials must be passed via a settings file referenced in the `ClaudeAgentOptions`.
+
+Tell the user to create a `settings.local.json` file (or similar) with their tracing credentials:
+
+**Phoenix:**
+```json
+{
+  "env": {
+    "PHOENIX_ENDPOINT": "http://localhost:6006",
+    "ARIZE_TRACE_ENABLED": "true"
+  }
+}
+```
+
+If the user has a Phoenix API key, also include `"PHOENIX_API_KEY": "<key>"`.
+
+**Arize AX:**
+```json
+{
+  "env": {
+    "ARIZE_API_KEY": "your-api-key",
+    "ARIZE_SPACE_ID": "your-space-id",
+    "ARIZE_TRACE_ENABLED": "true"
+  }
+}
+```
+
+Optional env vars like `ARIZE_PROJECT_NAME`, `ARIZE_DRY_RUN`, and `ARIZE_VERBOSE` can also be added to the settings file.
+
+### 4. Add the plugin to their code
+
+Give the user the appropriate snippet to add to their application. They must use `ClaudeSDKClient` and pass both the plugin path (from step 2) and the settings file (from step 3):
+
+**Python:**
+```python
+from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
+
+PLUGIN_PATH = "./arize-claude-code-plugin/plugins/claude-code-tracing"  # or CLI cache path
+
+options = ClaudeAgentOptions(
+    plugins=[{"type": "local", "path": PLUGIN_PATH}],
+    settings="./settings.local.json",
+)
+async with ClaudeSDKClient(options=options) as client:
+    await client.query("Your prompt here")
+    async for message in client.receive_response():
+        print(message)
+```
+
+**TypeScript:**
+```typescript
+import { ClaudeSDKClient } from "@anthropic-ai/claude-agent-sdk";
+
+const PLUGIN_PATH = "./arize-claude-code-plugin/plugins/claude-code-tracing"; // or CLI cache path
+
+const client = new ClaudeSDKClient({
+  plugins: [{ type: "local", path: PLUGIN_PATH }],
+  settings: "./settings.local.json",
+});
+
+await client.connect();
+await client.query("Your prompt here");
+for await (const message of client.receiveResponse()) {
+  console.log(message);
+}
+await client.close();
+```
+
+### 5. Validate
+
+Tell the user to add `"ARIZE_DRY_RUN": "true"` to their settings file to verify hooks fire without sending data, and check `/tmp/arize-claude-code.log` for output.
+
+### Agent SDK Compatibility
+
+- **Important**: You must use `ClaudeSDKClient` — the standalone `query()` function does not support hooks and tracing will not work.
+- **TypeScript SDK**: All 9 hooks are supported — full parity with the CLI.
+- **Python SDK**: `SessionStart`, `SessionEnd`, `Notification`, and `PermissionRequest` hooks are not available. The plugin handles this automatically — session state is lazily initialized on the first `UserPromptSubmit`. Core tracing (LLM spans, tool spans, subagent spans) works fully.
+- Tracing credentials must be passed via a settings file in `ClaudeAgentOptions` — the SDK subprocess does not inherit shell environment variables.
+- If the user is **troubleshooting** an existing Agent SDK setup, you can help by checking log files (`/tmp/arize-claude-code.log`), verifying the settings file contains the correct env vars, or enabling dry-run mode.
 
 ## Troubleshoot
 

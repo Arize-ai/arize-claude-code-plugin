@@ -11,6 +11,8 @@ This repository contains the following plugins:
 
 ## Installation
 
+### Claude Code CLI
+
 Install all plugins from the marketplace:
 
 ```bash
@@ -21,7 +23,7 @@ This installs:
 - `claude-code-tracing@arize-claude-plugin`
 - `arize-platform@arize-claude-plugin`
 
-### Alternative: Manual Installation (Tracing Only)
+#### Alternative: Manual Installation (Tracing Only)
 
 If you prefer not to use the plugin marketplace, you can manually install the tracing plugin:
 
@@ -32,6 +34,106 @@ cd arize-claude-code-plugin
 ```
 
 **Note:** This copies hooks to `~/.claude/hooks/` and configures them in `~/.claude/settings.json`. The `arize-platform` plugin skills are only available via marketplace installation.
+
+### Claude Agent SDK
+
+The tracing plugin works with the [Claude Agent SDK](https://platform.claude.com/docs/en/agent-sdk/overview) (Python and TypeScript). Load it as a local plugin by pointing to the plugin directory.
+
+> **Important:** You must use `ClaudeSDKClient` — the standalone `query()` function does **not** support hooks, so tracing will not work with it.
+
+#### Option A: Already installed via CLI (easiest)
+
+If you already installed the plugin with `claude plugin add`, reference it from the CLI cache:
+
+```python
+# Python
+plugins=[{"type": "local", "path": "~/.claude/plugins/cache/arize-claude-plugin/claude-code-tracing/1.0.0"}]
+```
+
+```typescript
+// TypeScript
+plugins: [{ type: "local", path: "~/.claude/plugins/cache/arize-claude-plugin/claude-code-tracing/1.0.0" }]
+```
+
+> **Tip:** Check `~/.claude/plugins/installed_plugins.json` for the exact path and version on your machine.
+
+#### Option B: Clone the repo
+
+If you haven't installed via the CLI, clone the repo into your project:
+
+```bash
+git clone https://github.com/Arize-ai/arize-claude-code-plugin.git
+```
+
+Then reference the plugin directory:
+
+```python
+# Python
+plugins=[{"type": "local", "path": "./arize-claude-code-plugin/plugins/claude-code-tracing"}]
+```
+
+```typescript
+// TypeScript
+plugins: [{ type: "local", path: "./arize-claude-code-plugin/plugins/claude-code-tracing" }]
+```
+Make sure to also pass in the path to the `settings.json` file. 
+```python
+# Python
+settings="./settings.local.json"
+```
+
+```typescript
+// TypeScript
+settingSources: ["local"] // only .claude/settings.local.json
+```
+
+#### Full example
+
+**Python:**
+```python
+import asyncio
+from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
+
+
+async def main():
+    options = ClaudeAgentOptions(
+        plugins=[{"type": "local", "path": "./arize-claude-code-plugin/plugins/claude-code-tracing"}],
+        settings="./settings.local.json"
+    )
+    async with ClaudeSDKClient(options=options) as client:
+        await client.query("PROMPT_GOES_HERE")
+        async for message in client.receive_response():
+            print(message)
+
+asyncio.run(main())
+```
+
+**TypeScript:**
+```typescript
+import { ClaudeSDKClient } from "@anthropic-ai/claude-agent-sdk";
+
+const client = new ClaudeSDKClient({
+  plugins: [{ type: "local", path: "./arize-claude-code-plugin/plugins/claude-code-tracing" }],
+  settingSources: ["local"],
+});
+
+await client.connect();
+await client.query("PROMPT_GOES_HERE");
+for await (const message of client.receiveResponse()) {
+  console.log(message);
+}
+await client.close();
+```
+
+#### Agent SDK Compatibility Notes
+
+The plugin is fully compatible with the Agent SDK with some caveats:
+
+- **TypeScript SDK** — All 9 hooks are supported. Full feature parity with the CLI.
+- **Python SDK** — `SessionStart`, `SessionEnd`, `Notification`, and `PermissionRequest` hooks are not fired by the Python SDK. The plugin handles this gracefully:
+  - Session initialization happens lazily on the first `UserPromptSubmit` if `SessionStart` didn't fire
+  - Stale state files are garbage-collected periodically by the `Stop` hook
+  - Notification and permission request spans are simply not created (non-critical, informational only)
 
 ---
 
@@ -150,17 +252,19 @@ ARIZE_VERBOSE=true claude
 
 ## Hooks Supported
 
-| Hook | Description | Captured Data |
-|------|-------------|---------------|
-| `SessionStart` | Session begins | Session ID, project name, timestamps |
-| `UserPromptSubmit` | User sends prompt | Trace ID, prompt preview, transcript position |
-| `PreToolUse` | Before tool executes | Tool ID, start time |
-| `PostToolUse` | After tool executes | Tool name, input, output, duration, tool-specific metadata |
-| `Stop` | Claude finishes responding | Model, token counts, input/output text |
-| `SubagentStop` | Subagent completes | Agent type, model, token counts, output |
-| `Notification` | System notification | Title, message, notification type |
-| `PermissionRequest` | Permission requested | Permission type, tool name |
-| `SessionEnd` | Session closes | Trace count, tool count |
+| Hook | Description | Captured Data | SDK Support |
+|------|-------------|---------------|-------------|
+| `SessionStart` | Session begins | Session ID, project name, timestamps | CLI, TS |
+| `UserPromptSubmit` | User sends prompt | Trace ID, prompt preview, transcript position | CLI, TS, Python |
+| `PreToolUse` | Before tool executes | Tool ID, start time | CLI, TS, Python |
+| `PostToolUse` | After tool executes | Tool name, input, output, duration, tool-specific metadata | CLI, TS, Python |
+| `Stop` | Claude finishes responding | Model, token counts, input/output text | CLI, TS, Python |
+| `SubagentStop` | Subagent completes | Agent type, model, token counts, output | CLI, TS, Python |
+| `Notification` | System notification | Title, message, notification type | CLI, TS |
+| `PermissionRequest` | Permission requested | Permission type, tool name | CLI, TS |
+| `SessionEnd` | Session closes | Trace count, tool count | CLI, TS |
+
+**SDK Support key:** CLI = Claude Code CLI, TS = TypeScript Agent SDK, Python = Python Agent SDK
 
 ## Troubleshooting
 

@@ -6,6 +6,8 @@ check_requirements
 input=$(cat 2>/dev/null || echo '{}')
 [[ -z "$input" ]] && input='{}'
 
+resolve_session "$input"
+
 session_id=$(get_state "session_id")
 trace_id=$(get_state "current_trace_id")
 [[ -z "$session_id" || -z "$trace_id" ]] && exit 0
@@ -66,5 +68,13 @@ attrs=$(jq -nc \
 span=$(build_span "Turn $trace_count" "LLM" "$trace_span_id" "$trace_id" "" "$trace_start_time" "$(get_timestamp_ms)" "$attrs")
 send_span "$span" || true
 
+del_state "current_trace_id"
+del_state "current_trace_span_id"
+del_state "current_trace_start_time"
 del_state "current_trace_prompt"
 log "Turn $trace_count sent"
+
+# Opportunistic GC for environments without SessionEnd (e.g., Python Agent SDK)
+if [[ $((trace_count % 5)) -eq 0 ]]; then
+  gc_stale_state_files
+fi

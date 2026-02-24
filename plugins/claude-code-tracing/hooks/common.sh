@@ -137,11 +137,29 @@ send_to_arize() {
   local span_json="$1"
   local script="${PLUGIN_DIR}/scripts/send_span.py"
 
-  # Find python with opentelemetry
+  # Find python with opentelemetry (cached per session to avoid slow conda/pipx lookups)
   local py=""
-  for p in python3 /usr/bin/python3 "$HOME/miniconda3/bin/python3"; do
-    "$p" -c "import opentelemetry" 2>/dev/null && { py="$p"; break; }
-  done
+  local cached_py
+  cached_py=$(get_state "python_path")
+  if [[ -n "$cached_py" ]] && "$cached_py" -c "import opentelemetry" 2>/dev/null; then
+    py="$cached_py"
+  else
+    # Build candidate list: common paths + conda + pipx venvs
+    local candidates=(python3 /usr/bin/python3 /usr/local/bin/python3 "$HOME/.local/bin/python3")
+    local conda_base
+    conda_base=$(conda info --base 2>/dev/null) && [[ -n "$conda_base" ]] && candidates+=("${conda_base}/bin/python3")
+    local pipx_dir="${HOME}/.local/pipx/venvs"
+    [[ -d "$pipx_dir" ]] || pipx_dir="${HOME}/.local/share/pipx/venvs"
+    if [[ -d "$pipx_dir" ]]; then
+      for venv in "$pipx_dir"/*/bin/python3; do
+        [[ -x "$venv" ]] && candidates+=("$venv")
+      done
+    fi
+    for p in "${candidates[@]}"; do
+      "$p" -c "import opentelemetry" 2>/dev/null && { py="$p"; break; }
+    done
+    [[ -n "$py" ]] && set_state "python_path" "$py"
+  fi
 
   [[ -z "$py" ]] && { error "Python with opentelemetry not found. Run: pip install opentelemetry-proto grpcio"; return 1; }
   [[ ! -f "$script" ]] && { error "send_span.py not found"; return 1; }
@@ -203,6 +221,77 @@ build_span() {
   "status":{"code":1}
 }]}]}]}
 EOF
+}
+
+# --- Session Resolution (for Agent SDK compatibility) ---
+
+# Resolve session state file using session_id from hook input JSON.
+# Call after reading stdin in each hook. Falls back to PID-based key if no session_id.
+resolve_session() {
+  local input="${1:-'{}'}"
+  local sid
+  sid=$(echo "$input" | jq -r '.session_id // empty' 2>/dev/null || echo "")
+
+  if [[ -n "$sid" ]]; then
+    _SESSION_KEY="$sid"
+  elif [[ -n "${CLAUDE_SESSION_KEY:-}" ]]; then
+    _SESSION_KEY="$CLAUDE_SESSION_KEY"
+  else
+    # Fall back to current PID-based derivation (already set at source time)
+    return 0
+  fi
+
+  STATE_FILE="${STATE_DIR}/state_${_SESSION_KEY}.json"
+  _LOCK_DIR="${STATE_DIR}/.lock_${_SESSION_KEY}"
+  init_state
+}
+
+# Idempotent session initialization. If session_id is already in state, returns immediately.
+# Used by SessionStart directly and as lazy init fallback in UserPromptSubmit
+# (for environments like the Python Agent SDK where SessionStart doesn't fire).
+ensure_session_initialized() {
+  local input="${1:-'{}'}"
+
+  # Skip if session already initialized
+  local existing_sid
+  existing_sid=$(get_state "session_id")
+  if [[ -n "$existing_sid" ]]; then
+    return 0
+  fi
+
+  local session_id
+  session_id=$(echo "$input" | jq -r '.session_id // empty' 2>/dev/null || echo "")
+  [[ -z "$session_id" ]] && session_id=$(generate_uuid)
+
+  local project_name="${ARIZE_PROJECT_NAME:-}"
+  if [[ -z "$project_name" ]]; then
+    local cwd
+    cwd=$(echo "$input" | jq -r '.cwd // empty' 2>/dev/null || echo "")
+    project_name=$(basename "${cwd:-$(pwd)}")
+  fi
+
+  set_state "session_id" "$session_id"
+  set_state "session_start_time" "$(get_timestamp_ms)"
+  set_state "project_name" "$project_name"
+  set_state "trace_count" "0"
+  set_state "tool_count" "0"
+
+  log "Session initialized: $session_id"
+}
+
+# Garbage-collect orphaned state files for PIDs no longer running.
+# Only cleans numeric (PID-based) keys; session_id-based files are cleaned by SessionEnd.
+gc_stale_state_files() {
+  for f in "${STATE_DIR}"/state_*.json; do
+    [[ -f "$f" ]] || continue
+    local file_key
+    file_key=$(basename "$f" | sed 's/state_//;s/\.json//')
+    # Only GC numeric (PID-based) keys; skip non-numeric session keys
+    if [[ "$file_key" =~ ^[0-9]+$ ]] && ! kill -0 "$file_key" 2>/dev/null; then
+      rm -f "$f"
+      rm -rf "${STATE_DIR}/.lock_${file_key}"
+    fi
+  done
 }
 
 # --- Init ---
