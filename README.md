@@ -39,6 +39,8 @@ cd arize-claude-code-plugin
 
 The tracing plugin works with the [Claude Agent SDK](https://platform.claude.com/docs/en/agent-sdk/overview) (Python and TypeScript). Load it as a local plugin by pointing to the plugin directory.
 
+> **Important:** You must use `ClaudeSDKClient` — the standalone `query()` function does **not** support hooks, so tracing will not work with it.
+
 #### Option A: Already installed via CLI (easiest)
 
 If you already installed the plugin with `claude plugin add`, reference it from the CLI cache:
@@ -108,30 +110,19 @@ asyncio.run(main())
 
 **TypeScript:**
 ```typescript
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { ClaudeSDKClient } from "@anthropic-ai/claude-agent-sdk";
 
-for await (const message of query({
-  prompt: "Your prompt here",
-  options: {
-    plugins: [{ type: "local", path: "./arize-claude-code-plugin/plugins/claude-code-tracing" }],
-    settingSources: ["local"]
-  }
-})) {
+const client = new ClaudeSDKClient({
+  plugins: [{ type: "local", path: "./arize-claude-code-plugin/plugins/claude-code-tracing" }],
+  settingSources: ["local"],
+});
+
+await client.connect();
+await client.query("PROMPT_GOES_HERE");
+for await (const message of client.receiveResponse()) {
   console.log(message);
 }
-```
-
-Set credentials via environment variables before running:
-
-```bash
-# For Phoenix
-export PHOENIX_ENDPOINT="http://localhost:6006"
-export ARIZE_TRACE_ENABLED="true"
-
-# For Arize AX
-export ARIZE_API_KEY="your-api-key"
-export ARIZE_SPACE_ID="your-space-id"
-export ARIZE_TRACE_ENABLED="true"
+await client.close();
 ```
 
 #### Agent SDK Compatibility Notes
