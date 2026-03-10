@@ -200,12 +200,25 @@ Then configure:
 }
 ```
 
+For on-prem Arize instances, also set the OTLP endpoint:
+```json
+{
+  "env": {
+    "ARIZE_API_KEY": "your-api-key",
+    "ARIZE_SPACE_ID": "your-space-id",
+    "ARIZE_OTLP_ENDPOINT": "otlp.your-instance.arize.com:443",
+    "ARIZE_TRACE_ENABLED": "true"
+  }
+}
+```
+
 ### Environment Variables
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `ARIZE_API_KEY` | For AX | - | Arize AX API key |
 | `ARIZE_SPACE_ID` | For AX | - | Arize AX space ID |
+| `ARIZE_OTLP_ENDPOINT` | No | `otlp.arize.com:443` | OTLP gRPC endpoint (for on-prem Arize instances) |
 | `PHOENIX_ENDPOINT` | For Phoenix | `http://localhost:6006` | Phoenix collector URL |
 | `PHOENIX_API_KEY` | No | - | Phoenix API key for authentication |
 | `ARIZE_PROJECT_NAME` | No | `claude-code` | Project name in Arize/Phoenix |

@@ -61,20 +61,25 @@ case "$choice" in
     echo ""
     read -p "Arize API Key: " api_key
     read -p "Arize Space ID: " space_id
-    
+
     if [[ -z "$api_key" || -z "$space_id" ]]; then
       echo "Error: API key and Space ID are required for Arize AX"
       exit 1
     fi
-    
+
+    echo ""
+    echo -e "${YELLOW}OTLP Endpoint${NC} (for hosted Arize instances, leave blank for default):"
+    read -p "OTLP Endpoint [otlp.arize.com:443]: " otlp_endpoint
+    otlp_endpoint="${otlp_endpoint:-otlp.arize.com:443}"
+
     # Merge into existing settings
     mkdir -p .claude
     [[ -f "$SETTINGS_FILE" ]] || echo '{}' > "$SETTINGS_FILE"
-    jq --arg key "$api_key" --arg space "$space_id" \
-      '.env = (.env // {}) + {"ARIZE_API_KEY": $key, "ARIZE_SPACE_ID": $space, "ARIZE_TRACE_ENABLED": "true"}' \
+    jq --arg key "$api_key" --arg space "$space_id" --arg endpoint "$otlp_endpoint" \
+      '.env = (.env // {}) + {"ARIZE_API_KEY": $key, "ARIZE_SPACE_ID": $space, "ARIZE_OTLP_ENDPOINT": $endpoint, "ARIZE_TRACE_ENABLED": "true"}' \
       "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp" && mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"
     echo ""
-    echo -e "${GREEN}✓${NC} Configured for Arize AX"
+    echo -e "${GREEN}✓${NC} Configured for Arize AX (endpoint: $otlp_endpoint)"
     echo ""
     echo -e "${YELLOW}Note:${NC} Arize AX requires Python dependencies:"
     echo "  pip install opentelemetry-proto grpcio"

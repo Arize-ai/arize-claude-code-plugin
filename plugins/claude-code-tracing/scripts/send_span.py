@@ -109,9 +109,10 @@ def send_to_arize_grpc(span_data: dict, api_key: str, space_id: str) -> bool:
             resource_spans=resource_spans
         )
         
-        # Send via gRPC
+        # Send via gRPC (endpoint is configurable for hosted Arize instances)
+        endpoint = os.environ.get("ARIZE_OTLP_ENDPOINT", "otlp.arize.com:443")
         credentials = grpc.ssl_channel_credentials()
-        channel = grpc.secure_channel("otlp.arize.com:443", credentials)
+        channel = grpc.secure_channel(endpoint, credentials)
         stub = trace_service_pb2_grpc.TraceServiceStub(channel)
         
         metadata = [

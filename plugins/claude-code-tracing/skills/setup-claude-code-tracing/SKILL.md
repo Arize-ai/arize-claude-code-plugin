@@ -54,17 +54,23 @@ Then proceed to [Configure Local Project](#configure-local-project) with `PHOENI
 
 ## Set Up Arize AX
 
-Arize AX is a cloud platform. Users need an account, a space, and an API key.
+Arize AX is available as a SaaS platform or as an on-prem deployment. Users need an account, a space, and an API key.
+
+**First, ask the user: "Are you using the Arize SaaS platform or an on-prem instance?"**
+
+- **SaaS** → Uses the default endpoint (`otlp.arize.com:443`). Continue below.
+- **On-prem** → The user will need to provide their custom OTLP endpoint (e.g., `otlp.mycompany.arize.com:443`). Ask for it and note it for the [Configure Settings](#configure-settings) step where it will be set as `ARIZE_OTLP_ENDPOINT`.
 
 ### 1. Create an account
 
-If the user doesn't have an Arize account, direct them to:
-- Sign up at https://app.arize.com/auth/join
+If the user doesn't have an Arize account:
+- **SaaS**: Sign up at https://app.arize.com/auth/join
+- **On-prem**: Contact their administrator for access to the on-prem instance
 
 ### 2. Get Space ID and API key
 
 Walk the user through finding their credentials:
-1. Log in at https://app.arize.com
+1. Log in to their Arize instance (https://app.arize.com for SaaS, or their on-prem URL)
 2. Click **Settings** (gear icon) in the left sidebar
 3. The **Space ID** is shown on the Space Settings page
 4. Go to the **API Keys** tab
@@ -85,7 +91,7 @@ Verify:
 python3 -c "import opentelemetry; import grpc; print('OK')"
 ```
 
-Then proceed to [Configure Local Project](#configure-local-project).
+Then proceed to [Configure Settings](#configure-settings). If the user is on an on-prem instance, remind them to set `ARIZE_OTLP_ENDPOINT` to their custom endpoint.
 
 ## Configure Settings
 
@@ -104,7 +110,8 @@ Before configuring, ask the user:
 3. **Credentials**:
    - Phoenix: endpoint URL (default: `http://localhost:6006`), optional API key
    - Arize AX: API key and Space ID
-4. **Project name** (optional): defaults to workspace name
+4. **OTLP Endpoint** (Arize AX only, optional): For hosted Arize instances using a custom endpoint. Defaults to `otlp.arize.com:443` if not set.
+5. **Project name** (optional): defaults to workspace name
 
 ### Write the config
 
@@ -136,6 +143,8 @@ If the user has a Phoenix API key, also set `"PHOENIX_API_KEY": "<key>"`.
   }
 }
 ```
+
+If the user has a custom OTLP endpoint (e.g., a hosted Arize instance), also set `"ARIZE_OTLP_ENDPOINT": "<host:port>"`. Defaults to `otlp.arize.com:443` if not set.
 
 If a custom project name was provided, also set `"ARIZE_PROJECT_NAME": "<name>"`.
 
@@ -230,7 +239,11 @@ If the user has a Phoenix API key, also include `"PHOENIX_API_KEY": "<key>"`.
 }
 ```
 
-Optional env vars like `ARIZE_PROJECT_NAME`, `ARIZE_DRY_RUN`, and `ARIZE_VERBOSE` can also be added to the settings file.
+Optional env vars that can also be added to the settings file:
+- `ARIZE_OTLP_ENDPOINT`: Custom OTLP gRPC endpoint for hosted Arize instances (default: `otlp.arize.com:443`)
+- `ARIZE_PROJECT_NAME`: Custom project name (default: workspace directory name)
+- `ARIZE_DRY_RUN`: Set to `"true"` to test without sending data
+- `ARIZE_VERBOSE`: Set to `"true"` for debug output
 
 ### 4. Add the plugin to their code
 
