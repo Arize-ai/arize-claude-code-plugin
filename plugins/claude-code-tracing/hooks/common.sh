@@ -125,7 +125,7 @@ send_to_phoenix() {
   }')
 
   # Build curl command with optional Authorization header
-  local curl_cmd=(curl -sf -X POST "${PHOENIX_ENDPOINT}/v1/projects/${project}/spans" -H "Content-Type: application/json")
+  local curl_cmd=(curl -sf --connect-timeout 2 --max-time 5 -X POST "${PHOENIX_ENDPOINT}/v1/projects/${project}/spans" -H "Content-Type: application/json")
   [[ -n "$PHOENIX_API_KEY" ]] && curl_cmd+=(-H "Authorization: Bearer ${PHOENIX_API_KEY}")
   curl_cmd+=(-d "$payload")
 
