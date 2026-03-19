@@ -44,7 +44,7 @@ type Span struct {
 	ParentID      string         `json:"parent_id,omitempty"`
 	StartTime     time.Time      `json:"start_time"`
 	EndTime       time.Time      `json:"end_time"`
-	StatusCode    string         `json:"status_code,omitempty"`
+	StatusCode    string         `json:"status_code,omitempty"` // "OK", "ERROR", or "UNSET"
 	StatusMessage string         `json:"status_message,omitempty"`
 	Attributes    map[string]any `json:"attributes,omitempty"`
 	Annotations   map[string]any `json:"annotations,omitempty"`
