@@ -12,9 +12,7 @@
   "keywords": [
     "arize",
     "observability",
-    "graphql",
     "traces",
-    "analytics",
-    "ml-platform"
+    "analytics"
   ]
 }
