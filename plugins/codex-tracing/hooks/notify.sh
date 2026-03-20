@@ -55,11 +55,27 @@ trace_count=$(get_state "trace_count")
 project_name=$(get_state "project_name")
 
 # --- Build user prompt from input-messages ---
-# input-messages can be a JSON array of message objects or a plain string
+# input-messages can be the full thread history as an array of strings/message
+# objects, or a plain string. Keep only the latest user message for input.value.
 user_prompt=""
 if echo "$user_input" | jq -e 'type == "array"' &>/dev/null; then
-  # Extract text from message array: [{"role":"user","content":"..."}]
-  user_prompt=$(echo "$user_input" | jq -r '[.[] | select(.role == "user") | .content] | join("\n")' 2>/dev/null || echo "$user_input")
+  user_prompt=$(echo "$user_input" | jq -r '
+    def as_text:
+      if . == null then ""
+      elif type == "string" then .
+      elif type == "array" then map(. | as_text) | join("\n")
+      elif type == "object" then (.text // .content // .message // .value // "" | as_text)
+      else tostring end;
+    (
+      [.[] | select(type == "object" and (.role // "") == "user") | .content | as_text]
+      | map(select(length > 0))
+      | last
+    ) // (
+      [.[] | select(type == "string")]
+      | map(select(length > 0))
+      | last
+    ) // ""
+  ' 2>/dev/null || echo "$user_input")
 elif echo "$user_input" | jq -e 'type == "string"' &>/dev/null; then
   user_prompt=$(echo "$user_input" | jq -r '.' 2>/dev/null || echo "$user_input")
 else
@@ -191,11 +207,221 @@ if [[ -n "$tool_calls_json" && "$tool_calls_json" != "null" ]]; then
   fi
 fi
 
-span=$(build_span "Turn $trace_count" "LLM" "$span_id" "$trace_id" "" "$start_time" "$end_time" "$attrs")
-debug_dump "${debug_prefix}_span" "$span"
-send_span "$span" || true
+# --- Flush collector events and build child spans ---
+COLLECTOR_PORT="${CODEX_COLLECTOR_PORT:-4318}"
+COLLECTOR_CTL="${PLUGIN_DIR}/scripts/collector_ctl.sh"
 
-log "Turn $trace_count sent (thread=$thread_id, turn=$turn_id)"
+collector_events="[]"
+if [[ -f "$COLLECTOR_CTL" ]]; then
+  source "$COLLECTOR_CTL"
+  collector_ensure 2>/dev/null || true
+
+  if [[ -n "$thread_id" ]]; then
+    last_collector_time_ns=$(get_state "last_collector_time_ns")
+    [[ -z "$last_collector_time_ns" ]] && last_collector_time_ns="0"
+    collector_events=$(curl -sf "http://127.0.0.1:${COLLECTOR_PORT}/drain/${thread_id}?since_ns=${last_collector_time_ns}&wait_ms=5000&quiet_ms=500" 2>/dev/null || echo "[]")
+    if [[ -z "$collector_events" || "$collector_events" == "null" ]]; then
+      collector_events="[]"
+    fi
+  else
+    log "Skipping collector flush because thread-id is missing"
+  fi
+  debug_dump "${debug_prefix}_collector_events" "$collector_events"
+fi
+
+# Build child spans from collector events
+child_spans=()
+event_count=$(echo "$collector_events" | jq 'length' 2>/dev/null || echo "0")
+if [[ "$event_count" -gt 0 ]]; then
+  max_collector_time_ns=$(echo "$collector_events" | jq -r '[.[].time_ns | tonumber?] | max // 0' 2>/dev/null || echo "0")
+  [[ -n "$max_collector_time_ns" && "$max_collector_time_ns" != "null" ]] && set_state "last_collector_time_ns" "$max_collector_time_ns"
+fi
+
+if [[ "$event_count" -gt 0 ]]; then
+  log "Processing $event_count collector events"
+
+  min_collector_time_ns=$(echo "$collector_events" | jq -r '[.[].time_ns | tonumber? | select(. > 0)] | min // 0' 2>/dev/null || echo "0")
+  max_collector_time_ns=$(echo "$collector_events" | jq -r '[.[].time_ns | tonumber? | select(. > 0)] | max // 0' 2>/dev/null || echo "0")
+  if [[ "${min_collector_time_ns:-0}" -gt 0 && "${max_collector_time_ns:-0}" -ge "${min_collector_time_ns:-0}" ]]; then
+    start_time=$(( min_collector_time_ns / 1000000 ))
+    end_time=$(( max_collector_time_ns / 1000000 ))
+    trace_duration_ms=$(( end_time - start_time ))
+    attrs=$(echo "$attrs" | jq --argjson duration "$trace_duration_ms" '. + {"codex.trace.duration_ms": $duration}')
+  fi
+
+  # --- Enrich parent span from events ---
+  # Extract model name from codex.conversation_starts or codex.api_request
+  event_model=$(echo "$collector_events" | jq -r '
+    [.[] | select(.event == "codex.conversation_starts" or .event == "codex.api_request")]
+    | first
+    | .attrs.model // .attrs["llm.model_name"] // .attrs["model_name"] // empty
+  ' 2>/dev/null || echo "")
+  if [[ -n "$event_model" ]]; then
+    attrs=$(echo "$attrs" | jq --arg m "$event_model" '. + {"llm.model_name": $m}')
+  fi
+
+  # Extract token counts from codex.sse_event (response.completed)
+  event_tokens=$(echo "$collector_events" | jq -c '
+    [.[] | select(.event == "codex.sse_event" and (.attrs.type == "response.completed" or .attrs["sse.type"] == "response.completed" or .attrs["event.kind"] == "response.completed"))]
+    | last
+    | .attrs // {}
+  ' 2>/dev/null || echo "{}")
+  if [[ -n "$event_tokens" && "$event_tokens" != "null" && "$event_tokens" != "{}" ]]; then
+    prompt_tokens=$(echo "$event_tokens" | jq -r '(.prompt_tokens // .input_tokens // .input_token_count // .["usage.prompt_tokens"] // empty) | tostring' 2>/dev/null || echo "")
+    completion_tokens=$(echo "$event_tokens" | jq -r '(.completion_tokens // .output_tokens // .output_token_count // .["usage.completion_tokens"] // empty) | tostring' 2>/dev/null || echo "")
+    total_tokens=$(echo "$event_tokens" | jq -r '(.total_tokens // .["usage.total_tokens"] // empty) | tostring' 2>/dev/null || echo "")
+
+    [[ -n "$prompt_tokens" && "$prompt_tokens" != "null" ]] || prompt_tokens=""
+    [[ -n "$completion_tokens" && "$completion_tokens" != "null" ]] || completion_tokens=""
+    [[ -n "$total_tokens" && "$total_tokens" != "null" ]] || total_tokens=""
+
+    if [[ -z "$total_tokens" && -n "$prompt_tokens" && -n "$completion_tokens" ]]; then
+      total_tokens=$((prompt_tokens + completion_tokens))
+    fi
+
+    token_enrichment=$(jq -nc \
+      --arg prompt "$prompt_tokens" \
+      --arg completion "$completion_tokens" \
+      --arg total "$total_tokens" '
+      {
+        prompt: (if $prompt == "" then null else ($prompt | tonumber) end),
+        completion: (if $completion == "" then null else ($completion | tonumber) end),
+        total: (if $total == "" then null else ($total | tonumber) end)
+      }')
+    debug_dump "${debug_prefix}_token_enrichment" "$token_enrichment"
+
+    attrs=$(echo "$attrs" | jq --arg prompt "$prompt_tokens" --arg completion "$completion_tokens" --arg total "$total_tokens" '
+      (if $prompt != "" then . + {"llm.token_count.prompt": ($prompt | tonumber)} else . end)
+      | (if $completion != "" then . + {"llm.token_count.completion": ($completion | tonumber)} else . end)
+      | (if $total != "" then . + {"llm.token_count.total": ($total | tonumber)} else . end)
+    ')
+    debug_dump "${debug_prefix}_attrs_after_tokens" "$attrs"
+  fi
+
+  # Extract sandbox/approval settings from codex.conversation_starts
+  conv_start_attrs=$(echo "$collector_events" | jq -c '
+    [.[] | select(.event == "codex.conversation_starts")] | first | .attrs // {}
+  ' 2>/dev/null || echo "{}")
+  if [[ -n "$conv_start_attrs" && "$conv_start_attrs" != "null" && "$conv_start_attrs" != "{}" ]]; then
+    sandbox=$(echo "$conv_start_attrs" | jq -r '.sandbox // .sandbox_mode // empty' 2>/dev/null || echo "")
+    approval=$(echo "$conv_start_attrs" | jq -r '.approval_mode // .approval // empty' 2>/dev/null || echo "")
+    [[ -n "$sandbox" ]] && attrs=$(echo "$attrs" | jq --arg v "$sandbox" '. + {"codex.sandbox_mode": $v}')
+    [[ -n "$approval" ]] && attrs=$(echo "$attrs" | jq --arg v "$approval" '. + {"codex.approval_mode": $v}')
+  fi
+
+  # --- Build TOOL child spans from codex.tool_decision + codex.tool_result pairs ---
+  tool_decisions=$(echo "$collector_events" | jq -c '[.[] | select(.event == "codex.tool_decision")]' 2>/dev/null || echo "[]")
+  tool_results=$(echo "$collector_events" | jq -c '[.[] | select(.event == "codex.tool_result")]' 2>/dev/null || echo "[]")
+
+  tool_decision_count=$(echo "$tool_decisions" | jq 'length' 2>/dev/null || echo "0")
+  for (( i=0; i<tool_decision_count; i++ )); do
+    decision=$(echo "$tool_decisions" | jq -c ".[$i]")
+    tool_name=$(echo "$decision" | jq -r '.attrs.tool_name // .attrs["tool.name"] // .attrs.name // "unknown_tool"' 2>/dev/null)
+    decision_time_ns=$(echo "$decision" | jq -r '.time_ns // "0"' 2>/dev/null)
+    approval_status=$(echo "$decision" | jq -r '.attrs.approved // .attrs.approval // .attrs.decision // .attrs.status // "unknown"' 2>/dev/null)
+
+    # Try to match a corresponding tool_result by tool name or index
+    result=$(echo "$tool_results" | jq -c \
+      --arg tool "$tool_name" \
+      --argjson idx "$i" '
+        [.[]
+          | select((.attrs.tool_name // .attrs["tool.name"] // .attrs.name // "") == $tool)
+        ]
+        | first // .[$idx] // null
+      ' 2>/dev/null || echo "null")
+
+    result_time_ns="$decision_time_ns"
+    tool_output=""
+    if [[ -n "$result" && "$result" != "null" ]]; then
+      result_time_ns=$(echo "$result" | jq -r '.time_ns // "0"' 2>/dev/null)
+      tool_output=$(echo "$result" | jq -r '.attrs.output // .attrs.result // .attrs["tool.output"] // ""' 2>/dev/null | head -c 2000)
+    fi
+
+    # Convert nanosecond timestamps to milliseconds for build_span
+    tool_start_ms=$(( ${decision_time_ns:-0} / 1000000 ))
+    tool_end_ms=$(( ${result_time_ns:-$decision_time_ns} / 1000000 ))
+    # Fallback to parent times if timestamps are zero/invalid
+    [[ "$tool_start_ms" -le 0 ]] && tool_start_ms="$start_time"
+    [[ "$tool_end_ms" -le 0 ]] && tool_end_ms="$tool_start_ms"
+
+    child_span_id=$(generate_uuid | tr -d '-' | cut -c1-16)
+    tool_attrs=$(jq -nc \
+      --arg name "$tool_name" \
+      --arg output "$tool_output" \
+      --arg approval "$approval_status" \
+      --arg sid "$session_id" \
+      '{
+        "openinference.span.kind": "TOOL",
+        "tool.name": $name,
+        "output.value": $output,
+        "codex.tool.approval_status": $approval,
+        "session.id": $sid
+      }')
+
+    child_span=$(build_span "$tool_name" "TOOL" "$child_span_id" "$trace_id" "$span_id" "$tool_start_ms" "$tool_end_ms" "$tool_attrs")
+    child_spans+=("$child_span")
+  done
+
+  # --- Build INTERNAL child spans from API/websocket requests ---
+  api_requests=$(echo "$collector_events" | jq -c '[.[] | select(.event == "codex.api_request" or .event == "codex.websocket_request")]' 2>/dev/null || echo "[]")
+  api_count=$(echo "$api_requests" | jq 'length' 2>/dev/null || echo "0")
+  for (( i=0; i<api_count; i++ )); do
+    req=$(echo "$api_requests" | jq -c ".[$i]")
+    req_model=$(echo "$req" | jq -r '.attrs.model // .attrs["llm.model_name"] // "unknown"' 2>/dev/null)
+    req_status=$(echo "$req" | jq -r '.attrs.status // .attrs.status_code // .attrs.success // "ok"' 2>/dev/null)
+    req_attempt=$(echo "$req" | jq -r '.attrs.attempt // "1"' 2>/dev/null)
+    req_duration_ms=$(echo "$req" | jq -r '.attrs.duration_ms // "0"' 2>/dev/null)
+    req_auth_mode=$(echo "$req" | jq -r '.attrs.auth_mode // empty' 2>/dev/null)
+    req_connection_reused=$(echo "$req" | jq -r '.attrs["auth.connection_reused"] // empty' 2>/dev/null)
+    req_time_ns=$(echo "$req" | jq -r '.time_ns // "0"' 2>/dev/null)
+
+    req_start_ms=$(( ${req_time_ns:-0} / 1000000 ))
+    [[ "$req_start_ms" -le 0 ]] && req_start_ms="$start_time"
+    req_end_ms="$req_start_ms"  # Point-in-time event
+
+    child_span_id=$(generate_uuid | tr -d '-' | cut -c1-16)
+    request_attrs=$(jq -nc \
+      --arg model "$req_model" \
+      --arg status "$req_status" \
+      --arg attempt "$req_attempt" \
+      --arg duration_ms "$req_duration_ms" \
+      --arg auth_mode "$req_auth_mode" \
+      --arg connection_reused "$req_connection_reused" \
+      --arg sid "$session_id" \
+      '{
+        "openinference.span.kind": "CHAIN",
+        "codex.request.model": $model,
+        "codex.request.status": $status,
+        "codex.request.attempt": $attempt,
+        "codex.request.duration_ms": ($duration_ms | tonumber? // 0),
+        "codex.request.auth_mode": $auth_mode,
+        "codex.request.connection_reused": (if $connection_reused == "" then null else ($connection_reused == "true") end),
+        "session.id": $sid
+      }
+      | with_entries(select(.value != null and .value != ""))')
+
+    child_span=$(build_span "API Request ($req_model)" "INTERNAL" "$child_span_id" "$trace_id" "$span_id" "$req_start_ms" "$req_end_ms" "$request_attrs")
+    child_spans+=("$child_span")
+  done
+fi
+
+# --- Build parent Turn span and assemble payload ---
+parent_span=$(build_span "Turn $trace_count" "LLM" "$span_id" "$trace_id" "" "$start_time" "$end_time" "$attrs")
+debug_dump "${debug_prefix}_parent_span" "$parent_span"
+
+if [[ ${#child_spans[@]} -gt 0 ]]; then
+  log "Building multi-span payload: 1 parent + ${#child_spans[@]} children"
+  all_spans=("$parent_span" "${child_spans[@]}")
+  multi_payload=$(build_multi_span "${all_spans[@]}")
+  debug_dump "${debug_prefix}_multi_span" "$multi_payload"
+  send_span "$multi_payload" || true
+else
+  # Fallback: single flat span (collector not running or no events)
+  debug_dump "${debug_prefix}_span" "$parent_span"
+  send_span "$parent_span" || true
+fi
+
+log "Turn $trace_count sent (thread=$thread_id, turn=$turn_id, children=${#child_spans[@]})"
 
 # Periodic GC of stale state files
 if [[ $((trace_count % 10)) -eq 0 ]]; then

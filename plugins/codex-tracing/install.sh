@@ -17,6 +17,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 NOTIFY_SCRIPT="${SCRIPT_DIR}/hooks/notify.sh"
+COLLECTOR_CTL="${SCRIPT_DIR}/scripts/collector_ctl.sh"
 CODEX_CONFIG_DIR="${HOME}/.codex"
 CODEX_CONFIG="${CODEX_CONFIG_DIR}/config.toml"
 
@@ -47,6 +48,23 @@ if [[ "${1:-}" == "uninstall" ]]; then
     fi
   fi
 
+  # Stop collector if running
+  if [[ -f "$COLLECTOR_CTL" ]]; then
+    source "$COLLECTOR_CTL"
+    collector_stop >/dev/null 2>&1 || true
+    info "Stopped collector"
+  fi
+
+  # Remove collector auto-start from shell profile
+  for profile in "${HOME}/.zshrc" "${HOME}/.bashrc"; do
+    if [[ -f "$profile" ]] && grep -q "collector_ctl.sh" "$profile" 2>/dev/null; then
+      cp "$profile" "${profile}.bak"
+      sed -i.tmp '/arize-codex.*collector_ctl/d; /collector_ensure/d' "$profile"
+      rm -f "${profile}.tmp"
+      info "Removed collector auto-start from $(basename "$profile")"
+    fi
+  done
+
   # Clean up state
   rm -rf "${HOME}/.arize-codex"
   info "Cleaned up state directory"
@@ -63,12 +81,11 @@ mkdir -p "$CODEX_CONFIG_DIR"
 [[ -f "$CODEX_CONFIG" ]] || touch "$CODEX_CONFIG"
 
 # --- Parse flags ---
-ENABLE_OTLP=false
 TARGET=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --target) TARGET="${2:-}"; shift 2 ;;
-    --otlp) ENABLE_OTLP=true; shift ;;
+    --otlp) shift ;;  # Accepted for backwards compat but always enabled now
     *) shift ;;
   esac
 done
@@ -183,50 +200,87 @@ esac
 chmod 600 "$ENV_FILE"
 info "Wrote credentials to $ENV_FILE"
 
-# --- Configure native OTLP export (optional) ---
-enable_otlp="n"
-if [[ "$ENABLE_OTLP" == "true" ]]; then
-  enable_otlp="y"
-elif [[ -t 0 ]]; then
-  # Interactive mode: ask the user
-  echo ""
-  read -rp "  Also enable Codex native OTLP export for richer events? [y/N]: " enable_otlp
-else
-  # Non-interactive mode: skip (can be enabled with --otlp flag)
-  info "Skipping native OTLP setup (non-interactive). Pass --otlp to enable."
+# --- Configure native OTLP export via local collector ---
+# The collector captures Codex's native OTel events and transforms them into
+# OpenInference child spans. This is always enabled (core functionality).
+COLLECTOR_PORT="${CODEX_COLLECTOR_PORT:-4318}"
+
+if grep -q "^\[otel\]" "$CODEX_CONFIG" 2>/dev/null; then
+  # Update existing [otel] section to point at local collector
+  cp "$CODEX_CONFIG" "${CODEX_CONFIG}.bak"
+  # Remove old [otel] section (from [otel] to next section or EOF)
+  awk '/^\[otel\]/{skip=1; next} /^\[/{skip=0} !skip' "${CODEX_CONFIG}.bak" > "$CODEX_CONFIG"
+  info "Removed old [otel] section from config.toml"
 fi
-if [[ "$enable_otlp" =~ ^[Yy] ]]; then
-  # Check if [otel] section exists
-  if grep -q "^\[otel\]" "$CODEX_CONFIG" 2>/dev/null; then
-    warn "[otel] section already exists in config.toml — please configure manually:"
+
+cat >> "$CODEX_CONFIG" <<EOF
+
+# Arize OTel collector — captures Codex events for rich span trees
+[otel]
+[otel.exporter.otlp-http]
+endpoint = "http://127.0.0.1:${COLLECTOR_PORT}/v1/logs"
+protocol = "json"
+EOF
+info "Added [otel] exporter pointing to local collector (port $COLLECTOR_PORT, protocol json)"
+
+# --- Start collector ---
+if [[ -f "$COLLECTOR_CTL" ]]; then
+  source "$COLLECTOR_CTL"
+  if collector_start >/dev/null 2>&1; then
+    info "Collector started (port $COLLECTOR_PORT)"
   else
-    case "$TARGET" in
-      phoenix)
-        cat >> "$CODEX_CONFIG" <<EOF
-
-# Arize native OTLP export to Phoenix
-[otel]
-exporter = { otlp-http = { endpoint = "${PHOENIX_ENDPOINT}/v1/traces", protocol = "binary" } }
-EOF
-        ;;
-      arize)
-        cat >> "$CODEX_CONFIG" <<EOF
-
-# Arize native OTLP export to Arize AX
-[otel]
-exporter = { otlp-grpc = { endpoint = "https://${ARIZE_OTLP_ENDPOINT:-otlp.arize.com:443}", headers = { "authorization" = "Bearer ${ARIZE_API_KEY}", "space_id" = "${ARIZE_SPACE_ID}" } } }
-EOF
-        ;;
-    esac
-    info "Added [otel] exporter to config.toml"
+    warn "Could not start collector — it will be started on next shell session"
   fi
+fi
+
+# --- Add collector auto-start to shell profile ---
+PROFILE_LINE="[ -f ~/.codex/arize-env.sh ] && source ~/.codex/arize-env.sh && source \"${SCRIPT_DIR}/scripts/collector_ctl.sh\" && collector_ensure"
+
+add_to_profile="n"
+if [[ -t 0 ]]; then
+  echo ""
+  read -rp "  Add collector auto-start to your shell profile? [Y/n]: " add_to_profile
+  add_to_profile="${add_to_profile:-y}"
+else
+  add_to_profile="y"
+fi
+
+if [[ "$add_to_profile" =~ ^[Yy] ]]; then
+  # Detect shell profile
+  SHELL_PROFILE=""
+  if [[ -f "${HOME}/.zshrc" ]]; then
+    SHELL_PROFILE="${HOME}/.zshrc"
+  elif [[ -f "${HOME}/.bashrc" ]]; then
+    SHELL_PROFILE="${HOME}/.bashrc"
+  elif [[ -f "${HOME}/.bash_profile" ]]; then
+    SHELL_PROFILE="${HOME}/.bash_profile"
+  fi
+
+  if [[ -n "$SHELL_PROFILE" ]]; then
+    if grep -q "collector_ctl.sh" "$SHELL_PROFILE" 2>/dev/null; then
+      info "Collector auto-start already in $(basename "$SHELL_PROFILE")"
+    else
+      echo "" >> "$SHELL_PROFILE"
+      echo "# Arize Codex tracing — auto-start OTel collector" >> "$SHELL_PROFILE"
+      echo "$PROFILE_LINE" >> "$SHELL_PROFILE"
+      info "Added collector auto-start to $(basename "$SHELL_PROFILE")"
+    fi
+  else
+    warn "Could not detect shell profile. Add manually:"
+    echo "    $PROFILE_LINE"
+  fi
+fi
+
+# --- Write collector port to env file ---
+if ! grep -q "CODEX_COLLECTOR_PORT" "$ENV_FILE" 2>/dev/null; then
+  echo "export CODEX_COLLECTOR_PORT=${COLLECTOR_PORT}" >> "$ENV_FILE"
 fi
 
 # --- Summary ---
 echo ""
 info "Setup complete!"
 echo ""
-echo "  Add this to your shell profile (.zshrc / .bashrc):"
+echo "  Add this to your shell profile (.zshrc / .bashrc) if not already done:"
 echo ""
 echo "    source ${ENV_FILE}"
 echo ""
@@ -243,6 +297,13 @@ case "$TARGET" in
     echo "    export ARIZE_SPACE_ID=<your-space-id>"
     ;;
 esac
+echo ""
+echo "  The OTel collector runs automatically in the background on port $COLLECTOR_PORT."
+echo "  It captures Codex's native telemetry events and transforms them into rich span trees."
+echo "  Manage it with: source ${SCRIPT_DIR}/scripts/collector_ctl.sh"
+echo "    collector_status  — check if running"
+echo "    collector_stop    — stop the collector"
+echo "    collector_ensure  — start if not running (idempotent)"
 echo ""
 echo "  Test with: ARIZE_DRY_RUN=true codex"
 echo ""

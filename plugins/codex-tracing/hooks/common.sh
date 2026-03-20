@@ -297,6 +297,44 @@ build_span() {
 EOF
 }
 
+# --- Build multi-span OTLP payload ---
+# Takes an array of individual span JSON objects (each from build_span()) and
+# merges them into a single resourceSpans payload for batch sending.
+build_multi_span() {
+  # Usage: build_multi_span span1_json span2_json ...
+  # Each argument is a complete OTLP JSON from build_span().
+  # Returns a single resourceSpans payload with all spans under one scope.
+  local spans_array="[]"
+  for span_json in "$@"; do
+    # Extract the span object from each build_span() output
+    local extracted
+    extracted=$(echo "$span_json" | jq -c '.resourceSpans[0].scopeSpans[0].spans[0]' 2>/dev/null) || continue
+    [[ -z "$extracted" || "$extracted" == "null" ]] && continue
+    spans_array=$(echo "$spans_array" | jq --argjson s "$extracted" '. + [$s]')
+  done
+
+  local span_count
+  span_count=$(echo "$spans_array" | jq 'length')
+  if [[ "$span_count" -eq 0 ]]; then
+    echo "{}"
+    return 1
+  fi
+
+  jq -nc --argjson spans "$spans_array" '{
+    "resourceSpans": [{
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "codex"}}
+        ]
+      },
+      "scopeSpans": [{
+        "scope": {"name": "arize-codex-plugin"},
+        "spans": $spans
+      }]
+    }]
+  }'
+}
+
 # --- Requirements check ---
 check_requirements() {
   [[ "$ARIZE_TRACE_ENABLED" != "true" ]] && exit 0

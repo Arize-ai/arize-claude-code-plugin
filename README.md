@@ -338,8 +338,9 @@ This will:
 1. Prompt you to choose Phoenix or Arize AX
 2. Collect credentials
 3. Add the `notify` hook to `~/.codex/config.toml`
-4. Optionally enable native OTLP export
-5. Write an env file with your credentials
+4. Configure Codex OTLP export to the local collector
+5. Start the collector and add shell auto-start
+6. Write an env file with your credentials
 
 ### Manual Configuration
 
@@ -349,6 +350,8 @@ This will:
 ```bash
 export ARIZE_TRACE_ENABLED=true
 export PHOENIX_ENDPOINT=http://localhost:6006
+export ARIZE_PROJECT_NAME=codex
+export CODEX_COLLECTOR_PORT=4318
 ```
 
 **For Arize AX (cloud):**
@@ -356,6 +359,8 @@ export PHOENIX_ENDPOINT=http://localhost:6006
 export ARIZE_TRACE_ENABLED=true
 export ARIZE_API_KEY=your-api-key
 export ARIZE_SPACE_ID=your-space-id
+export ARIZE_PROJECT_NAME=codex
+export CODEX_COLLECTOR_PORT=4318
 ```
 
 For Arize AX, also install Python dependencies:
@@ -369,20 +374,30 @@ pip install opentelemetry-proto grpcio
 notify = ["bash", "/path/to/plugins/codex-tracing/hooks/notify.sh"]
 ```
 
-#### Step 3 (optional): Enable native OTLP export
+#### Step 3: Route Codex OTLP events to the local collector
 
 Add to `~/.codex/config.toml`:
 
-**For Phoenix:**
 ```toml
 [otel]
-exporter = { otlp-http = { endpoint = "http://localhost:6006/v1/traces", protocol = "binary" } }
+[otel.exporter.otlp-http]
+endpoint = "http://127.0.0.1:4318/v1/logs"
+protocol = "json"
 ```
 
-**For Arize AX:**
-```toml
-[otel]
-exporter = { otlp-grpc = { endpoint = "https://otlp.arize.com:443", headers = { "authorization" = "Bearer YOUR_API_KEY", "space_id" = "YOUR_SPACE_ID" } } }
+This replaces any previous `[otel]` config that pointed directly at Phoenix or Arize. The local collector receives Codex's native telemetry and the notify hook turns that into rich span trees.
+
+#### Step 4: Start the collector
+
+```bash
+source /path/to/plugins/codex-tracing/scripts/collector_ctl.sh
+collector_start
+```
+
+To auto-start on new shells:
+
+```bash
+[ -f ~/.codex/arize-env.sh ] && source ~/.codex/arize-env.sh && source "/path/to/plugins/codex-tracing/scripts/collector_ctl.sh" && collector_ensure
 ```
 
 ### Environment Variables
@@ -398,11 +413,28 @@ exporter = { otlp-grpc = { endpoint = "https://otlp.arize.com:443", headers = { 
 | `ARIZE_TRACE_ENABLED` | No | `true` | Enable/disable tracing |
 | `ARIZE_DRY_RUN` | No | `false` | Print spans instead of sending |
 | `ARIZE_VERBOSE` | No | `false` | Enable verbose logging |
+| `ARIZE_TRACE_DEBUG` | No | `false` | Write collector/hook debug artifacts to `~/.arize-codex/debug` |
 | `ARIZE_LOG_FILE` | No | `/tmp/arize-codex.log` | Log file path (set empty to disable) |
+| `CODEX_COLLECTOR_PORT` | No | `4318` | Port for the local OTEL collector |
 
 ## Captured Data
 
 ### Notify Hook (OpenInference LLM Spans)
+
+The parent Turn span includes:
+- Latest user message as `input.value`
+- Assistant response as `output.value`
+- Turn-level token totals from `codex.sse_event response.completed`
+- `session.id`, `codex.thread_id`, and `codex.turn_id`
+
+### Collector-Enriched Child Spans
+
+When the local collector is running and Codex OTLP export is enabled, child spans are built from native Codex events:
+- TOOL spans from `codex.tool_decision` + `codex.tool_result`
+- INTERNAL request spans from `codex.websocket_request` / `codex.api_request`
+- Request metadata includes model, status, duration, auth mode, and connection reuse
+
+Token counts stay on the parent Turn span because Codex currently exposes usage at the completed-turn level, not per request.
 
 Each `agent-turn-complete` event creates an LLM span with:
 
