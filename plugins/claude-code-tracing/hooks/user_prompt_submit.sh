@@ -11,6 +11,7 @@ resolve_session "$input"
 
 # Lazy init: if SessionStart never fired (e.g., Python Agent SDK), initialize now
 ensure_session_initialized "$input"
+apply_team_context
 
 session_id=$(get_state "session_id")
 

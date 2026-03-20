@@ -207,6 +207,18 @@ build_span() {
   local parent="${5:-}" start="$6" end="${7:-$start}" attrs
   attrs="${8:-"{}"}"
 
+  # Inject team attributes if present
+  local _tn
+  _tn=$(get_state "team_name")
+  if [[ -n "$_tn" ]]; then
+    local _tr _ta
+    _tr=$(get_state "team_role")
+    _ta=$(get_state "team_agent_name")
+    attrs=$(echo "$attrs" | jq -c \
+      --arg tn "$_tn" --arg tr "$_tr" --arg ta "$_ta" \
+      '. + {"team.name":$tn,"team.role":$tr} + (if $ta != "" then {"team.agent_name":$ta} else {} end)')
+  fi
+
   local parent_json=""
   [[ -n "$parent" ]] && parent_json="\"parentSpanId\": \"$parent\","
 
@@ -292,6 +304,49 @@ gc_stale_state_files() {
       rm -rf "${STATE_DIR}/.lock_${file_key}"
     fi
   done
+}
+
+# --- Agent Teams Context ---
+apply_team_context() {
+  local team_name="${CLAUDE_CODE_TEAM_NAME:-}"
+  [[ -z "$team_name" ]] && return 0
+
+  # Idempotent: skip if already applied
+  local existing_team
+  existing_team=$(get_state "team_name")
+  [[ -n "$existing_team" ]] && return 0
+
+  local session_id
+  session_id=$(get_state "session_id")
+  [[ -z "$session_id" ]] && return 0
+
+  local shared_file="${STATE_DIR}/team_${team_name}_session"
+
+  # Stale check: if our state file is newer than the shared file, the shared
+  # file is from a previous session — remove it so this session can write fresh.
+  if [[ -f "$shared_file" && "$STATE_FILE" -nt "$shared_file" ]]; then
+    rm -f "$shared_file"
+  fi
+
+  # Atomic first-writer-wins (noclobber = O_CREAT|O_EXCL)
+  ( set -C; echo "$session_id" > "$shared_file" ) 2>/dev/null || true
+
+  local shared_sid
+  shared_sid=$(cat "$shared_file" 2>/dev/null || echo "")
+  [[ -z "$shared_sid" ]] && return 0
+
+  local team_role
+  if [[ "$shared_sid" == "$session_id" ]]; then
+    team_role="lead"
+  else
+    team_role="teammate"
+    # Override session_id in state to the lead's session_id
+    set_state "session_id" "$shared_sid"
+  fi
+
+  set_state "team_name" "$team_name"
+  set_state "team_role" "$team_role"
+  log "Team context applied: name=$team_name role=$team_role"
 }
 
 # --- Init ---

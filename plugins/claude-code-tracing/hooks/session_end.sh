@@ -18,6 +18,13 @@ tool_count=$(get_state "tool_count")
 log_always "Session complete: ${trace_count:-0} traces, ${tool_count:-0} tools"
 log_always "View in Arize/Phoenix: session.id = $session_id"
 
+# Clean up team shared file if this is the lead
+_team_role=$(get_state "team_role")
+_team_name=$(get_state "team_name")
+if [[ "$_team_role" == "lead" && -n "$_team_name" ]]; then
+  rm -f "${STATE_DIR}/team_${_team_name}_session" 2>/dev/null || true
+fi
+
 # Clean up this session's state and lock
 rm -f "$STATE_FILE" 2>/dev/null || true
 rm -rf "$_LOCK_DIR" 2>/dev/null || true
