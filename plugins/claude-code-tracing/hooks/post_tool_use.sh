@@ -19,7 +19,7 @@ tool_name=$(echo "$input" | jq -r '.tool_name // "unknown"' 2>/dev/null || echo 
 tool_id=$(echo "$input" | jq -r '.tool_use_id // empty' 2>/dev/null || echo "")
 tool_input_raw=$(echo "$input" | jq -c '.tool_input // {}' 2>/dev/null || echo '{}')
 tool_input=$(echo "$tool_input_raw" | head -c 5000)
-tool_response=$(echo "$input" | jq -r '.tool_response // empty' 2>/dev/null | head -c 5000)
+tool_response=$(echo "$input" | jq -r '.tool_response // empty' 2>/dev/null | head -c 5000) || true
 
 # Track whether content was truncated
 tool_input_truncated="false"
