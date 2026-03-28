@@ -339,7 +339,7 @@ This will:
 2. Collect credentials
 3. Add the `notify` hook to `~/.codex/config.toml`
 4. Configure Codex OTLP export to the local collector
-5. Start the collector and add shell auto-start
+5. Install a `codex` proxy wrapper in `~/.local/bin/codex`
 6. Write an env file with your credentials
 
 ### Manual Configuration
@@ -387,18 +387,21 @@ protocol = "json"
 
 This replaces any previous `[otel]` config that pointed directly at Phoenix or Arize. The local collector receives Codex's native telemetry and the notify hook turns that into rich span trees.
 
-#### Step 4: Start the collector
+#### Step 4: Install the codex proxy wrapper
 
 ```bash
-source /path/to/plugins/codex-tracing/scripts/collector_ctl.sh
-collector_start
+mkdir -p ~/.local/bin
+cp /path/to/plugins/codex-tracing/scripts/codex_proxy.sh ~/.local/bin/codex
+chmod +x ~/.local/bin/codex
 ```
 
-To auto-start on new shells:
+Make sure `~/.local/bin` is ahead of the real Codex binary in your `PATH`:
 
 ```bash
-[ -f ~/.codex/arize-env.sh ] && source ~/.codex/arize-env.sh && source "/path/to/plugins/codex-tracing/scripts/collector_ctl.sh" && collector_ensure
+export PATH="$HOME/.local/bin:$PATH"
 ```
+
+The wrapper sources `~/.codex/arize-env.sh`, runs `collector_ensure`, and then execs the real Codex binary so the collector is up before Codex emits OTLP events.
 
 ### Environment Variables
 

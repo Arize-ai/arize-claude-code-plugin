@@ -18,8 +18,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 NOTIFY_SCRIPT="${SCRIPT_DIR}/hooks/notify.sh"
 COLLECTOR_CTL="${SCRIPT_DIR}/scripts/collector_ctl.sh"
+PROXY_TEMPLATE="${SCRIPT_DIR}/scripts/codex_proxy.sh"
 CODEX_CONFIG_DIR="${HOME}/.codex"
 CODEX_CONFIG="${CODEX_CONFIG_DIR}/config.toml"
+PROXY_DIR="${HOME}/.local/bin"
+PROXY_PATH="${PROXY_DIR}/codex"
+PROXY_BACKUP="${PROXY_DIR}/codex.arize-backup"
+PATH_PROFILE_MARKER="# Arize Codex tracing - prepend ~/.local/bin for codex proxy"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -29,6 +34,31 @@ NC='\033[0m'
 info() { echo -e "${GREEN}[arize]${NC} $*"; }
 warn() { echo -e "${YELLOW}[arize]${NC} $*"; }
 err()  { echo -e "${RED}[arize]${NC} $*" >&2; }
+
+detect_shell_profile() {
+  if [[ -f "${HOME}/.zshrc" ]]; then
+    echo "${HOME}/.zshrc"
+  elif [[ -f "${HOME}/.bashrc" ]]; then
+    echo "${HOME}/.bashrc"
+  elif [[ -f "${HOME}/.bash_profile" ]]; then
+    echo "${HOME}/.bash_profile"
+  else
+    echo ""
+  fi
+}
+
+discover_real_codex() {
+  local current_codex
+  current_codex=$(command -v codex 2>/dev/null || true)
+  if [[ -z "$current_codex" ]]; then
+    return 1
+  fi
+  if [[ "$current_codex" == "$PROXY_PATH" && -f "$PROXY_PATH" ]]; then
+    current_codex=$(sed -n 's/^REAL_CODEX="\([^"]*\)"$/\1/p' "$PROXY_PATH" | head -1)
+  fi
+  [[ -n "$current_codex" && -x "$current_codex" ]] || return 1
+  echo "$current_codex"
+}
 
 # --- Uninstall ---
 if [[ "${1:-}" == "uninstall" ]]; then
@@ -65,6 +95,27 @@ if [[ "${1:-}" == "uninstall" ]]; then
     fi
   done
 
+  # Remove codex proxy wrapper and restore any previous user wrapper
+  if [[ -f "$PROXY_PATH" ]] && grep -q "ARIZE_CODEX_PROXY" "$PROXY_PATH" 2>/dev/null; then
+    rm -f "$PROXY_PATH"
+    info "Removed codex proxy from ${PROXY_PATH}"
+  fi
+  if [[ -f "$PROXY_BACKUP" ]]; then
+    mv "$PROXY_BACKUP" "$PROXY_PATH"
+    chmod +x "$PROXY_PATH"
+    info "Restored previous codex wrapper to ${PROXY_PATH}"
+  fi
+
+  # Remove PATH injection marker if we added one
+  for profile in "${HOME}/.zshrc" "${HOME}/.bashrc" "${HOME}/.bash_profile"; do
+    if [[ -f "$profile" ]] && grep -q "prepend ~/.local/bin for codex proxy" "$profile" 2>/dev/null; then
+      cp "$profile" "${profile}.bak"
+      sed -i.tmp '/Arize Codex tracing - prepend \~\/\.local\/bin for codex proxy/d; /export PATH="\$HOME\/\.local\/bin:\$PATH"/d' "$profile"
+      rm -f "${profile}.tmp"
+      info "Removed PATH update from $(basename "$profile")"
+    fi
+  done
+
   # Clean up state
   rm -rf "${HOME}/.arize-codex"
   info "Cleaned up state directory"
@@ -75,6 +126,8 @@ fi
 # --- Prerequisites ---
 command -v jq &>/dev/null || { err "jq is required. Install: brew install jq"; exit 1; }
 command -v codex &>/dev/null || warn "codex CLI not found in PATH — make sure it's installed"
+REAL_CODEX_BIN="$(discover_real_codex || true)"
+[[ -n "${REAL_CODEX_BIN}" ]] || { err "Could not determine the real codex binary path"; exit 1; }
 
 # --- Ensure config directory exists ---
 mkdir -p "$CODEX_CONFIG_DIR"
@@ -208,8 +261,13 @@ COLLECTOR_PORT="${CODEX_COLLECTOR_PORT:-4318}"
 if grep -q "^\[otel\]" "$CODEX_CONFIG" 2>/dev/null; then
   # Update existing [otel] section to point at local collector
   cp "$CODEX_CONFIG" "${CODEX_CONFIG}.bak"
-  # Remove old [otel] section (from [otel] to next section or EOF)
-  awk '/^\[otel\]/{skip=1; next} /^\[/{skip=0} !skip' "${CODEX_CONFIG}.bak" > "$CODEX_CONFIG"
+  # Remove old [otel] section and any nested [otel.*] tables.
+  awk '
+    BEGIN { skip=0 }
+    /^\[otel(\.|\])/ { skip=1; next }
+    skip && /^\[/ && $0 !~ /^\[otel(\.|\])/ { skip=0 }
+    !skip { print }
+  ' "${CODEX_CONFIG}.bak" > "$CODEX_CONFIG"
   info "Removed old [otel] section from config.toml"
 fi
 
@@ -223,47 +281,61 @@ protocol = "json"
 EOF
 info "Added [otel] exporter pointing to local collector (port $COLLECTOR_PORT, protocol json)"
 
+# --- Install codex proxy wrapper ---
+mkdir -p "$PROXY_DIR"
+if [[ -f "$PROXY_PATH" ]] && ! grep -q "ARIZE_CODEX_PROXY" "$PROXY_PATH" 2>/dev/null; then
+  cp "$PROXY_PATH" "$PROXY_BACKUP"
+  info "Backed up existing ${PROXY_PATH} to ${PROXY_BACKUP}"
+fi
+sed \
+  -e "s|__REAL_CODEX__|${REAL_CODEX_BIN}|g" \
+  -e "s|__ARIZE_ENV_FILE__|${ENV_FILE}|g" \
+  -e "s|__COLLECTOR_CTL__|${COLLECTOR_CTL}|g" \
+  "$PROXY_TEMPLATE" > "$PROXY_PATH"
+chmod +x "$PROXY_PATH"
+info "Installed codex proxy to ${PROXY_PATH}"
+
 # --- Start collector ---
 if [[ -f "$COLLECTOR_CTL" ]]; then
   source "$COLLECTOR_CTL"
   if collector_start >/dev/null 2>&1; then
     info "Collector started (port $COLLECTOR_PORT)"
   else
-    warn "Could not start collector — it will be started on next shell session"
+    warn "Could not start collector — the proxy will retry on the next codex launch"
   fi
 fi
 
-# --- Add collector auto-start to shell profile ---
-PROFILE_LINE="[ -f ~/.codex/arize-env.sh ] && source ~/.codex/arize-env.sh && source \"${SCRIPT_DIR}/scripts/collector_ctl.sh\" && collector_ensure"
+# --- Ensure ~/.local/bin is on PATH ahead of the real codex ---
+PROFILE_LINE='export PATH="$HOME/.local/bin:$PATH"'
+SHELL_PROFILE="$(detect_shell_profile)"
+
+for profile in "${HOME}/.zshrc" "${HOME}/.bashrc" "${HOME}/.bash_profile"; do
+  if [[ -f "$profile" ]] && grep -q "collector_ctl.sh" "$profile" 2>/dev/null; then
+    cp "$profile" "${profile}.bak"
+    sed -i.tmp '/arize-codex.*collector_ctl/d; /collector_ensure/d' "$profile"
+    rm -f "${profile}.tmp"
+    info "Removed old collector auto-start from $(basename "$profile")"
+  fi
+done
 
 add_to_profile="n"
 if [[ -t 0 ]]; then
   echo ""
-  read -rp "  Add collector auto-start to your shell profile? [Y/n]: " add_to_profile
+  read -rp "  Ensure ~/.local/bin is prepended in your shell profile for the codex proxy? [Y/n]: " add_to_profile
   add_to_profile="${add_to_profile:-y}"
 else
   add_to_profile="y"
 fi
 
 if [[ "$add_to_profile" =~ ^[Yy] ]]; then
-  # Detect shell profile
-  SHELL_PROFILE=""
-  if [[ -f "${HOME}/.zshrc" ]]; then
-    SHELL_PROFILE="${HOME}/.zshrc"
-  elif [[ -f "${HOME}/.bashrc" ]]; then
-    SHELL_PROFILE="${HOME}/.bashrc"
-  elif [[ -f "${HOME}/.bash_profile" ]]; then
-    SHELL_PROFILE="${HOME}/.bash_profile"
-  fi
-
   if [[ -n "$SHELL_PROFILE" ]]; then
-    if grep -q "collector_ctl.sh" "$SHELL_PROFILE" 2>/dev/null; then
-      info "Collector auto-start already in $(basename "$SHELL_PROFILE")"
+    if grep -q "prepend ~/.local/bin for codex proxy" "$SHELL_PROFILE" 2>/dev/null; then
+      info "PATH update already present in $(basename "$SHELL_PROFILE")"
     else
       echo "" >> "$SHELL_PROFILE"
-      echo "# Arize Codex tracing — auto-start OTel collector" >> "$SHELL_PROFILE"
+      echo "$PATH_PROFILE_MARKER" >> "$SHELL_PROFILE"
       echo "$PROFILE_LINE" >> "$SHELL_PROFILE"
-      info "Added collector auto-start to $(basename "$SHELL_PROFILE")"
+      info "Added PATH update to $(basename "$SHELL_PROFILE")"
     fi
   else
     warn "Could not detect shell profile. Add manually:"
@@ -283,6 +355,7 @@ echo ""
 echo "  Add this to your shell profile (.zshrc / .bashrc) if not already done:"
 echo ""
 echo "    source ${ENV_FILE}"
+echo "    export PATH=\"\$HOME/.local/bin:\$PATH\""
 echo ""
 echo "  Or export the variables before running codex:"
 echo ""
@@ -298,7 +371,8 @@ case "$TARGET" in
     ;;
 esac
 echo ""
-echo "  The OTel collector runs automatically in the background on port $COLLECTOR_PORT."
+echo "  The proxy wrapper at ${PROXY_PATH} ensures the collector is running before Codex starts."
+echo "  The OTel collector listens in the background on port $COLLECTOR_PORT."
 echo "  It captures Codex's native telemetry events and transforms them into rich span trees."
 echo "  Manage it with: source ${SCRIPT_DIR}/scripts/collector_ctl.sh"
 echo "    collector_status  — check if running"
