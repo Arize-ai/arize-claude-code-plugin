@@ -1,13 +1,14 @@
-# Arize Claude Code Plugins
+# Arize Coding Agent Plugins
 
-Official Claude Code plugins from Arize AI for enhanced observability and platform integration.
+Official plugins from Arize AI for enhanced observability and platform integration across coding agents.
 
 ## What's Included
 
 This repository contains the following plugins:
 
 1. **[claude-code-tracing](#claude-code-tracing)** — Automatic tracing of Claude Code sessions to Arize AX or Phoenix
-2. **[arize-platform](#arize-platform)** — Skills for managing projects, datasets, and working with the Arize AX CLI
+2. **[codex-tracing](#codex-tracing)** — Automatic tracing of OpenAI Codex CLI sessions to Arize AX or Phoenix
+3. **[arize-platform](#arize-platform)** — Skills for managing projects, datasets, and working with the Arize AX CLI
 
 ## Installation
 
@@ -296,6 +297,220 @@ pip install opentelemetry-proto grpcio
 ```
 
 Note: Phoenix does not require Python — it uses the REST API directly.
+
+---
+
+# Codex Tracing
+
+Trace your [OpenAI Codex CLI](https://github.com/openai/codex) sessions to [Arize AX](https://arize.com) or [Phoenix](https://github.com/Arize-ai/phoenix) with OpenInference spans.
+
+## How It Works
+
+Codex tracing uses two complementary mechanisms:
+
+1. **Notify hook** — Creates OpenInference LLM spans from Codex's `agent-turn-complete` events, giving you per-turn traces with user input, assistant output, session tracking, and proper span structure for Arize/Phoenix's LLM trace UI.
+
+2. **Native OTLP export** (optional) — Configures Codex's built-in OpenTelemetry to send its rich internal events (`codex.tool_decision`, `codex.tool_result`, `codex.api_request`, etc.) directly to your backend for deeper observability.
+
+## Features
+
+- **Dual Target Support** — Send traces to Arize AX (cloud) or Phoenix (self-hosted)
+- **OpenInference Format** — Standard span format compatible with any OpenInference tool
+- **Session Tracking** — Traces are grouped by Codex thread-id for session-level analysis
+- **Native OTLP Integration** — Optionally leverage Codex's built-in telemetry for tool-level events
+- **DX Features** — Dry run mode, verbose output, install/uninstall scripts
+- **Minimal Dependencies**
+  - Phoenix: Pure bash (`jq` + `curl` only)
+  - Arize AX: Requires Python with `opentelemetry-proto` and `grpcio`
+
+## Installation
+
+### Quick Setup
+
+Run the interactive installer:
+
+```bash
+cd plugins/codex-tracing
+./install.sh
+```
+
+This will:
+1. Prompt you to choose Phoenix or Arize AX
+2. Collect credentials
+3. Add the `notify` hook to `~/.codex/config.toml`
+4. Configure Codex OTLP export to the local collector
+5. Install a `codex` proxy wrapper in `~/.local/bin/codex`
+6. Write an env file with your credentials
+
+### Manual Configuration
+
+#### Step 1: Set environment variables
+
+**For Phoenix (self-hosted):**
+```bash
+export ARIZE_TRACE_ENABLED=true
+export PHOENIX_ENDPOINT=http://localhost:6006
+export ARIZE_PROJECT_NAME=codex
+export CODEX_COLLECTOR_PORT=4318
+```
+
+**For Arize AX (cloud):**
+```bash
+export ARIZE_TRACE_ENABLED=true
+export ARIZE_API_KEY=your-api-key
+export ARIZE_SPACE_ID=your-space-id
+export ARIZE_PROJECT_NAME=codex
+export CODEX_COLLECTOR_PORT=4318
+```
+
+For Arize AX, also install Python dependencies:
+```bash
+pip install opentelemetry-proto grpcio
+```
+
+#### Step 2: Add the notify hook to `~/.codex/config.toml`
+
+```toml
+notify = ["bash", "/path/to/plugins/codex-tracing/hooks/notify.sh"]
+```
+
+#### Step 3: Route Codex OTLP events to the local collector
+
+Add to `~/.codex/config.toml`:
+
+```toml
+[otel]
+[otel.exporter.otlp-http]
+endpoint = "http://127.0.0.1:4318/v1/logs"
+protocol = "json"
+```
+
+This replaces any previous `[otel]` config that pointed directly at Phoenix or Arize. The local collector receives Codex's native telemetry and the notify hook turns that into rich span trees.
+
+#### Step 4: Install the codex proxy wrapper
+
+```bash
+mkdir -p ~/.local/bin
+cp /path/to/plugins/codex-tracing/scripts/codex_proxy.sh ~/.local/bin/codex
+chmod +x ~/.local/bin/codex
+```
+
+Make sure `~/.local/bin` is ahead of the real Codex binary in your `PATH`:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+The wrapper sources `~/.codex/arize-env.sh`, runs `collector_ensure`, and then execs the real Codex binary so the collector is up before Codex emits OTLP events.
+
+### Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `ARIZE_API_KEY` | For AX | - | Arize AX API key |
+| `ARIZE_SPACE_ID` | For AX | - | Arize AX space ID |
+| `ARIZE_OTLP_ENDPOINT` | No | `otlp.arize.com:443` | OTLP gRPC endpoint (for on-prem Arize instances) |
+| `PHOENIX_ENDPOINT` | For Phoenix | `http://localhost:6006` | Phoenix collector URL |
+| `PHOENIX_API_KEY` | No | - | Phoenix API key for authentication |
+| `ARIZE_PROJECT_NAME` | No | `codex` | Project name in Arize/Phoenix |
+| `ARIZE_TRACE_ENABLED` | No | `true` | Enable/disable tracing |
+| `ARIZE_DRY_RUN` | No | `false` | Print spans instead of sending |
+| `ARIZE_VERBOSE` | No | `false` | Enable verbose logging |
+| `ARIZE_TRACE_DEBUG` | No | `false` | Write collector/hook debug artifacts to `~/.arize-codex/debug` |
+| `ARIZE_LOG_FILE` | No | `/tmp/arize-codex.log` | Log file path (set empty to disable) |
+| `CODEX_COLLECTOR_PORT` | No | `4318` | Port for the local OTEL collector |
+
+## Captured Data
+
+### Notify Hook (OpenInference LLM Spans)
+
+The parent Turn span includes:
+- Latest user message as `input.value`
+- Assistant response as `output.value`
+- Turn-level token totals from `codex.sse_event response.completed`
+- `session.id`, `codex.thread_id`, and `codex.turn_id`
+
+### Collector-Enriched Child Spans
+
+When the local collector is running and Codex OTLP export is enabled, child spans are built from native Codex events:
+- TOOL spans from `codex.tool_decision` + `codex.tool_result`
+- INTERNAL request spans from `codex.websocket_request` / `codex.api_request`
+- Request metadata includes model, status, duration, auth mode, and connection reuse
+
+Token counts stay on the parent Turn span because Codex currently exposes usage at the completed-turn level, not per request.
+
+Each `agent-turn-complete` event creates an LLM span with:
+
+| Attribute | Description |
+|-----------|-------------|
+| `session.id` | Codex thread ID (groups turns into sessions) |
+| `trace.number` | Turn sequence number within the session |
+| `openinference.span.kind` | `LLM` |
+| `input.value` | User prompt text |
+| `output.value` | Assistant response text |
+| `codex.thread_id` | Codex thread identifier |
+| `codex.turn_id` | Codex turn identifier |
+| `llm.output_messages` | Structured assistant message |
+
+### Native OTLP Events (when enabled)
+
+Codex emits these events via its built-in OpenTelemetry:
+
+| Event | Description |
+|-------|-------------|
+| `codex.conversation_starts` | Session initialization with model, context windows |
+| `codex.user_prompt` | User prompt with character count |
+| `codex.tool_decision` | Tool selection and review decisions |
+| `codex.tool_result` | Tool execution with duration, arguments, output |
+| `codex.api_request` | HTTP calls with status codes and duration |
+| `codex.sse_event` | Server-sent event processing |
+
+## Usage
+
+Once installed, tracing happens automatically on every Codex turn.
+
+### Dry Run Mode
+
+Test without sending data:
+
+```bash
+ARIZE_DRY_RUN=true codex
+```
+
+### Verbose Mode
+
+See what's being captured:
+
+```bash
+ARIZE_VERBOSE=true codex
+```
+
+### View logs
+
+```bash
+tail -f /tmp/arize-codex.log
+```
+
+## Uninstall
+
+```bash
+cd plugins/codex-tracing
+./install.sh uninstall
+```
+
+This removes the notify hook from `config.toml` and cleans up state files. Native OTLP settings are left in place — remove the `[otel]` section from `~/.codex/config.toml` manually if needed.
+
+## Comparison: Claude Code vs Codex Tracing
+
+| Feature | Claude Code | Codex |
+|---------|------------|-------|
+| Hook events | 9 (full lifecycle) | 1 (`agent-turn-complete` via notify) |
+| Native OTLP | No (spans built in bash) | Yes (built-in, configurable) |
+| Tool-level spans | Yes (PreToolUse/PostToolUse) | Via native OTLP events |
+| Token tracking | Yes (from transcript) | Via native OTLP events |
+| Subagent spans | Yes (SubagentStop) | Not available |
+| Session management | PID-based + session_id | Thread-id based |
+| Configuration | `.claude/settings.local.json` | `~/.codex/config.toml` + env vars |
 
 ---
 
