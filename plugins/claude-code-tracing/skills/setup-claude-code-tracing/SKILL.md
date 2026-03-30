@@ -148,6 +148,8 @@ If the user has a custom OTLP endpoint (e.g., a hosted Arize instance), also set
 
 If a custom project name was provided, also set `"ARIZE_PROJECT_NAME": "<name>"`.
 
+If the user wants trace attribution by user, also set `"ARIZE_USER_ID": "<user-id>"`. This adds `user.id` to all spans (OpenInference convention), enabling per-user filtering in Arize/Phoenix.
+
 **Example workflow:**
 ```bash
 # For project-local
@@ -242,6 +244,7 @@ If the user has a Phoenix API key, also include `"PHOENIX_API_KEY": "<key>"`.
 Optional env vars that can also be added to the settings file:
 - `ARIZE_OTLP_ENDPOINT`: Custom OTLP gRPC endpoint for hosted Arize instances (default: `otlp.arize.com:443`)
 - `ARIZE_PROJECT_NAME`: Custom project name (default: workspace directory name)
+- `ARIZE_USER_ID`: User identifier for trace attribution (adds `user.id` to all spans)
 - `ARIZE_DRY_RUN`: Set to `"true"` to test without sending data
 - `ARIZE_VERBOSE`: Set to `"true"` for debug output
 
@@ -309,3 +312,4 @@ Common issues and fixes:
 | Want to test without sending | Set `ARIZE_DRY_RUN` to `"true"` in env config |
 | Want verbose logging | Set `ARIZE_VERBOSE` to `"true"` in env config |
 | Wrong project name | Set `ARIZE_PROJECT_NAME` in env config (default: `claude-code`) |
+| Want per-user trace filtering | Set `ARIZE_USER_ID` in env config (adds `user.id` to all spans) |
