@@ -24,10 +24,12 @@ if [[ -n "$prev_trace_id" && -n "$prev_span_id" ]]; then
   project_name=$(get_state "project_name")
   end_time=$(get_timestamp_ms)
 
+  user_id=$(get_state "user_id")
+
   attrs=$(jq -nc \
     --arg sid "$session_id" --arg num "$prev_count" --arg proj "$project_name" \
-    --arg in "$prev_prompt" \
-    '{"session.id":$sid,"trace.number":$num,"project.name":$proj,"openinference.span.kind":"LLM","input.value":$in,"output.value":"(Turn closed by fail-safe: Stop hook did not fire)"}')
+    --arg in "$prev_prompt" --arg uid "$user_id" \
+    '{"session.id":$sid,"trace.number":$num,"project.name":$proj,"openinference.span.kind":"LLM","input.value":$in,"output.value":"(Turn closed by fail-safe: Stop hook did not fire)"} + (if $uid != "" then {"user.id":$uid} else {} end)')
 
   span=$(build_span "Turn $prev_count" "LLM" "$prev_span_id" "$prev_trace_id" "" "$prev_start" "$end_time" "$attrs")
   send_span "$span" || true

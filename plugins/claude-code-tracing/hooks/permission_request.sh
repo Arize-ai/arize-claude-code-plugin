@@ -23,8 +23,10 @@ parent=$(get_state "current_trace_span_id")
 
 session_id=$(get_state "session_id")
 
-attrs=$(jq -n --arg sid "$session_id" --arg perm "$permission" --arg tool "$tool" --arg tinput "$tool_input" \
-  '{"session.id":$sid,"openinference.span.kind":"chain","permission.type":$perm,"permission.tool":$tool,"input.value":$tinput}')
+user_id=$(get_state "user_id")
+
+attrs=$(jq -n --arg sid "$session_id" --arg perm "$permission" --arg tool "$tool" --arg tinput "$tool_input" --arg uid "$user_id" \
+  '{"session.id":$sid,"openinference.span.kind":"chain","permission.type":$perm,"permission.tool":$tool,"input.value":$tinput} + (if $uid != "" then {"user.id":$uid} else {} end)')
 
 span=$(build_span "Permission Request" "CHAIN" "$span_id" "$trace_id" "$parent" "$ts" "$ts" "$attrs")
 send_span "$span" || true

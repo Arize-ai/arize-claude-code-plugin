@@ -17,6 +17,7 @@ ARIZE_SPACE_ID="${ARIZE_SPACE_ID:-}"
 PHOENIX_ENDPOINT="${PHOENIX_ENDPOINT:-}"
 PHOENIX_API_KEY="${PHOENIX_API_KEY:-}"
 ARIZE_PROJECT_NAME="${ARIZE_PROJECT_NAME:-}"
+ARIZE_USER_ID="${ARIZE_USER_ID:-}"
 ARIZE_TRACE_ENABLED="${ARIZE_TRACE_ENABLED:-true}"
 ARIZE_DRY_RUN="${ARIZE_DRY_RUN:-false}"
 ARIZE_VERBOSE="${ARIZE_VERBOSE:-false}"
@@ -275,6 +276,13 @@ ensure_session_initialized() {
   set_state "project_name" "$project_name"
   set_state "trace_count" "0"
   set_state "tool_count" "0"
+
+  # Store user ID if provided via env var or hook input
+  local user_id="${ARIZE_USER_ID:-}"
+  if [[ -z "$user_id" ]]; then
+    user_id=$(echo "$input" | jq -r '.user_id // empty' 2>/dev/null || echo "")
+  fi
+  [[ -n "$user_id" ]] && set_state "user_id" "$user_id"
 
   log "Session initialized: $session_id"
 }

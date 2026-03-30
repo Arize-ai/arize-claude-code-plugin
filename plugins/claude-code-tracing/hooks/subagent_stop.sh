@@ -74,14 +74,17 @@ fi
 
 total_tokens=$((in_tokens + out_tokens))
 
+user_id=$(get_state "user_id")
+
 attrs=$(jq -nc \
   --arg sid "$session_id" \
   --arg agent_id "$agent_id" \
   --arg agent_type "$agent_type" \
   --arg output "$subagent_output" \
   --arg model "$model" \
+  --arg uid "$user_id" \
   --argjson in_tok "$in_tokens" --argjson out_tok "$out_tokens" --argjson total_tok "$total_tokens" \
-  '{"session.id":$sid,"openinference.span.kind":"chain","subagent.id":$agent_id,"subagent.type":$agent_type,"llm.model_name":$model,"llm.token_count.prompt":$in_tok,"llm.token_count.completion":$out_tok,"llm.token_count.total":$total_tok} + (if $output != "" then {"output.value":$output} else {} end)')
+  '{"session.id":$sid,"openinference.span.kind":"chain","subagent.id":$agent_id,"subagent.type":$agent_type,"llm.model_name":$model,"llm.token_count.prompt":$in_tok,"llm.token_count.completion":$out_tok,"llm.token_count.total":$total_tok} + (if $output != "" then {"output.value":$output} else {} end) + (if $uid != "" then {"user.id":$uid} else {} end)')
 
 span=$(build_span "Subagent: $agent_type" "CHAIN" "$span_id" "$trace_id" "$parent" "$start_time" "$end_time" "$attrs")
 send_span "$span" || true

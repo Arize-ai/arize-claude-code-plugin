@@ -72,11 +72,14 @@ del_state "tool_${tool_id}_start"
 span_id=$(generate_uuid | tr -d '-' | cut -c1-16)
 
 # Build base attributes
+user_id=$(get_state "user_id")
+
 attrs=$(jq -n \
   --arg sid "$session_id" --arg tool "$tool_name" \
   --arg in "$tool_input" --arg out "$tool_response" \
   --arg desc "$tool_description" --arg trunc "$truncated" \
-  '{"session.id":$sid,"openinference.span.kind":"tool","tool.name":$tool,"input.value":$in,"output.value":$out,"tool.description":$desc,"tool.truncated":$trunc}')
+  --arg uid "$user_id" \
+  '{"session.id":$sid,"openinference.span.kind":"tool","tool.name":$tool,"input.value":$in,"output.value":$out,"tool.description":$desc,"tool.truncated":$trunc} + (if $uid != "" then {"user.id":$uid} else {} end)')
 
 # Add tool-specific structured attributes
 [[ -n "$tool_command" ]] && attrs=$(echo "$attrs" | jq --arg v "$tool_command" '. + {"tool.command":$v}')

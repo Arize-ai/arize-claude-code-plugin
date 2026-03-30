@@ -20,12 +20,15 @@ span_id=$(generate_uuid | tr -d '-' | cut -c1-16)
 ts=$(get_timestamp_ms)
 parent=$(get_state "current_trace_span_id")
 
+user_id=$(get_state "user_id")
+
 attrs=$(jq -n \
   --arg sid "$session_id" \
   --arg msg "$message" \
   --arg title "$title" \
   --arg type "$notif_type" \
-  '{"session.id":$sid,"openinference.span.kind":"chain","notification.message":$msg,"notification.title":$title,"notification.type":$type,"input.value":$msg}')
+  --arg uid "$user_id" \
+  '{"session.id":$sid,"openinference.span.kind":"chain","notification.message":$msg,"notification.title":$title,"notification.type":$type,"input.value":$msg} + (if $uid != "" then {"user.id":$uid} else {} end)')
 
 span=$(build_span "Notification: $notif_type" "CHAIN" "$span_id" "$trace_id" "$parent" "$ts" "$ts" "$attrs")
 send_span "$span" || true

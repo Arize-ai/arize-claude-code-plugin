@@ -91,6 +91,16 @@ case "$choice" in
     ;;
 esac
 
+# Optional: set user ID for OpenInference tracing
+echo ""
+read -p "User ID for trace attribution (optional, press Enter to skip): " user_id
+if [[ -n "$user_id" ]]; then
+  jq --arg uid "$user_id" \
+    '.env = (.env // {}) + {"ARIZE_USER_ID": $uid}' \
+    "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp" && mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"
+  echo -e "${GREEN}✓${NC} User ID set: $user_id"
+fi
+
 echo ""
 echo "Configuration saved to $SETTINGS_FILE"
 echo ""

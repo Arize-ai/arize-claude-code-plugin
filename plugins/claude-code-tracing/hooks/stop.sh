@@ -58,12 +58,15 @@ total_tokens=$((in_tokens + out_tokens))
 
 output_messages=$(jq -nc --arg out "$output" '[{"message.role":"assistant","message.content":$out}]')
 
+user_id=$(get_state "user_id")
+
 attrs=$(jq -nc \
   --arg sid "$session_id" --arg num "$trace_count" --arg proj "$project_name" \
   --arg in "$user_prompt" --arg out "$output" --arg model "$model" \
+  --arg uid "$user_id" \
   --argjson in_tok "$in_tokens" --argjson out_tok "$out_tokens" --argjson total_tok "$total_tokens" \
   --argjson out_msgs "$output_messages" \
-  '{"session.id":$sid,"trace.number":$num,"project.name":$proj,"openinference.span.kind":"LLM","llm.model_name":$model,"llm.token_count.prompt":$in_tok,"llm.token_count.completion":$out_tok,"llm.token_count.total":$total_tok,"input.value":$in,"output.value":$out,"llm.output_messages":$out_msgs}')
+  '{"session.id":$sid,"trace.number":$num,"project.name":$proj,"openinference.span.kind":"LLM","llm.model_name":$model,"llm.token_count.prompt":$in_tok,"llm.token_count.completion":$out_tok,"llm.token_count.total":$total_tok,"input.value":$in,"output.value":$out,"llm.output_messages":$out_msgs} + (if $uid != "" then {"user.id":$uid} else {} end)')
 
 span=$(build_span "Turn $trace_count" "LLM" "$trace_span_id" "$trace_id" "" "$trace_start_time" "$(get_timestamp_ms)" "$attrs")
 send_span "$span" || true
