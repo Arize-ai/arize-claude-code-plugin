@@ -1,6 +1,6 @@
 {
   "name": "claude-code-tracing",
-  "description": "Automatic tracing of Claude Code sessions to Arize AX or Phoenix with OpenInference spans. Supports 9 hooks for comprehensive observability.",
+  "description": "Automatic tracing of Claude Code sessions to Arize AX or Phoenix with OpenInference spans. Supports 11 hooks for comprehensive observability.",
   "version": "1.0.0",
   "author": {
     "name": "Arize AI",
@@ -8,7 +8,7 @@
     "url": "https://arize.com"
   },
   "repository": "https://github.com/Arize-ai/arize-claude-code-plugin",
-  "license": "Apache-2.0",
+  "license": "MIT",
   "keywords": [
     "tracing",
     "observability",
@@ -94,6 +94,26 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/permission_request.sh\""
+          }
+        ]
+      }
+    ],
+    "TeammateIdle": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/teammate_idle.sh\""
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/task_completed.sh\""
           }
         ]
       }

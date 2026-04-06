@@ -118,11 +118,12 @@ await client.close();
 
 The plugin is fully compatible with the Agent SDK with some caveats:
 
-- **TypeScript SDK** — All 9 hooks are supported. Full feature parity with the CLI.
-- **Python SDK** — `SessionStart`, `SessionEnd`, `Notification`, and `PermissionRequest` hooks are not fired by the Python SDK. The plugin handles this gracefully:
+- **TypeScript SDK** — All 11 hooks are supported. Full feature parity with the CLI.
+- **Python SDK** — `SessionStart`, `SessionEnd`, `Notification`, `PermissionRequest`, `TeammateIdle`, and `TaskCompleted` hooks are not fired by the Python SDK. The plugin handles this gracefully:
   - Session initialization happens lazily on the first `UserPromptSubmit` if `SessionStart` didn't fire
   - Stale state files are garbage-collected periodically by the `Stop` hook
   - Notification and permission request spans are simply not created (non-critical, informational only)
+  - TeammateIdle and TaskCompleted are agent-team hooks not supported by the Python SDK; team state caching and task completion spans are skipped
 
 ---
 
@@ -132,8 +133,8 @@ Trace your Claude Code sessions to [Arize AX](https://arize.com) or [Phoenix](ht
 
 ## Features
 
-- **9 Hooks** — Most comprehensive tracing coverage available
-  - SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop, SubagentStop, Notification, PermissionRequest, SessionEnd
+- **11 Hooks** — Most comprehensive tracing coverage available
+  - SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop, SubagentStop, Notification, PermissionRequest, TeammateIdle, TaskCompleted, SessionEnd
 - **Dual Target Support** — Send traces to Arize AX (cloud) or Phoenix (self-hosted)
 - **OpenInference Format** — Standard span format compatible with any OpenInference tool
 - **Guided Setup Skill** — `/setup-claude-code-tracing` walks you through configuration
@@ -225,6 +226,7 @@ For on-prem Arize instances, also set the OTLP endpoint:
 | `ARIZE_TRACE_ENABLED` | No | `true` | Enable/disable tracing |
 | `ARIZE_DRY_RUN` | No | `false` | Print spans instead of sending |
 | `ARIZE_VERBOSE` | No | `false` | Enable verbose logging |
+| `ARIZE_USER_ID` | No | - | User identifier for trace attribution (adds `user.id` to all spans) |
 | `ARIZE_LOG_FILE` | No | `/tmp/arize-claude-code.log` | Log file path (set empty to disable) |
 
 ## Usage
@@ -264,6 +266,8 @@ ARIZE_VERBOSE=true claude
 | `SubagentStop` | Subagent completes | Agent type, model, token counts, output | CLI, TS, Python |
 | `Notification` | System notification | Title, message, notification type | CLI, TS |
 | `PermissionRequest` | Permission requested | Permission type, tool name | CLI, TS |
+| `TeammateIdle` | Teammate goes idle | Team name, teammate name (state-only, no span) | CLI, TS |
+| `TaskCompleted` | Task marked complete | Task ID, subject, description, team context | CLI, TS |
 | `SessionEnd` | Session closes | Trace count, tool count | CLI, TS |
 
 **SDK Support key:** CLI = Claude Code CLI, TS = TypeScript Agent SDK, Python = Python Agent SDK
