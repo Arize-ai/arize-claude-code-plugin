@@ -18,42 +18,36 @@ user_prompt=$(get_state "current_trace_prompt")
 project_name=$(get_state "project_name")
 trace_count=$(get_state "trace_count")
 
-# Parse transcript for AI response and tokens
 transcript=$(echo "$input" | jq -r '.transcript_path // empty' 2>/dev/null || echo "")
+
+_tn=$(get_state 'team_name')
+if [[ -n "$_tn" ]]; then
+  # Team still alive — defer Turn span until TeamDelete clears team_name.
+  # Flush happens via close_active_turn in user_prompt_submit / session_end.
+  [[ -n "$transcript" ]] && set_state "deferred_transcript" "$transcript"
+  set_state "deferred_turn_end_time" "$(get_timestamp_ms)"
+  log "Turn $trace_count: team active, deferring"
+  exit 0
+fi
+
+_turn_tn=$(get_state 'turn_team_name')
+[[ -n "$_turn_tn" ]] && _tn="$_turn_tn"
+
+# Parse transcript for AI response and tokens
 output="" model="" in_tokens=0 out_tokens=0
 
 if [[ -f "$transcript" ]]; then
   start_line=$(get_state "trace_start_line")
-  skip_lines=$((${start_line:-0}))
-
-  # Use tail to skip already-processed lines instead of iterating from line 0
-  while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-
-    [[ $(echo "$line" | jq -r '.type' 2>/dev/null) == "assistant" ]] || continue
-
-    # Extract text
-    text=$(echo "$line" | jq -r '.message.content | if type=="array" then [.[]|select(.type=="text")|.text]|join("\n") else . end' 2>/dev/null)
-    [[ -n "$text" && "$text" != "null" ]] && output="${output:+$output
-}$text"
-
-    # Extract model and tokens (safe: validate numeric before arithmetic)
-    model=$(echo "$line" | jq -r '.message.model // empty' 2>/dev/null)
-    val=$(echo "$line" | jq -r '.message.usage.input_tokens // 0' 2>/dev/null)
-    [[ "$val" =~ ^[0-9]+$ ]] && in_tokens=$((in_tokens + val))
-    val=$(echo "$line" | jq -r '.message.usage.output_tokens // 0' 2>/dev/null)
-    [[ "$val" =~ ^[0-9]+$ ]] && out_tokens=$((out_tokens + val))
-    val=$(echo "$line" | jq -r '.message.usage.cache_read_input_tokens // 0' 2>/dev/null)
-    [[ "$val" =~ ^[0-9]+$ ]] && in_tokens=$((in_tokens + val))
-    val=$(echo "$line" | jq -r '.message.usage.cache_creation_input_tokens // 0' 2>/dev/null)
-    [[ "$val" =~ ^[0-9]+$ ]] && in_tokens=$((in_tokens + val))
-  done < <(tail -n +"$((skip_lines + 1))" "$transcript")
+  parse_transcript "$transcript" "${start_line:-0}"
+  output="$_pt_all_text"
+  model="$_pt_model"
+  in_tokens=$_pt_in_tokens
+  out_tokens=$_pt_out_tokens
 fi
 
-output=$(printf '%s' "$output" | head -c 5000)
+output=$(printf '%s' "$output" | head -c "10000")
 [[ -z "$output" ]] && output="(No response)"
 
-# Compute total token count
 total_tokens=$((in_tokens + out_tokens))
 
 output_messages=$(jq -nc --arg out "$output" '[{"message.role":"assistant","message.content":$out}]')
@@ -63,18 +57,22 @@ user_id=$(get_state "user_id")
 attrs=$(jq -nc \
   --arg sid "$session_id" --arg num "$trace_count" --arg proj "$project_name" \
   --arg in "$user_prompt" --arg out "$output" --arg model "$model" \
-  --arg uid "$user_id" \
+  --arg uid "$user_id" --arg tn "$_tn" \
   --argjson in_tok "$in_tokens" --argjson out_tok "$out_tokens" --argjson total_tok "$total_tokens" \
   --argjson out_msgs "$output_messages" \
-  '{"session.id":$sid,"trace.number":$num,"project.name":$proj,"openinference.span.kind":"LLM","llm.model_name":$model,"llm.token_count.prompt":$in_tok,"llm.token_count.completion":$out_tok,"llm.token_count.total":$total_tok,"input.value":$in,"output.value":$out,"llm.output_messages":$out_msgs} + (if $uid != "" then {"user.id":$uid} else {} end)')
+  '{"session.id":$sid,"trace.number":$num,"project.name":$proj,"openinference.span.kind":"AGENT","llm.model_name":$model,"llm.token_count.prompt":$in_tok,"llm.token_count.completion":$out_tok,"llm.token_count.total":$total_tok,"input.value":$in,"output.value":$out,"llm.output_messages":$out_msgs}
+   + (if $uid != "" then {"user.id":$uid} else {} end)
+   + (if $tn != "" then {"team.name":$tn} else {} end)')
 
-span=$(build_span "Turn $trace_count" "LLM" "$trace_span_id" "$trace_id" "" "$trace_start_time" "$(get_timestamp_ms)" "$attrs")
+span=$(build_span "Turn $trace_count" "AGENT" "$trace_span_id" "$trace_id" "" "$trace_start_time" "$(get_timestamp_ms)" "$attrs")
 send_span "$span" || true
 
-del_state "current_trace_id"
-del_state "current_trace_span_id"
-del_state "current_trace_start_time"
-del_state "current_trace_prompt"
+# Preserve for late-arriving teammate hooks (SubagentStop, TaskCompleted)
+set_state "last_trace_id" "$trace_id"
+set_state "last_trace_span_id" "$trace_span_id"
+
+del_states current_trace_id current_trace_span_id current_trace_start_time current_trace_prompt turn_team_name \
+  deferred_transcript deferred_turn_end_time
 log "Turn $trace_count sent"
 
 # Opportunistic GC for environments without SessionEnd (e.g., Python Agent SDK)

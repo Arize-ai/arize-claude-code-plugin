@@ -12,6 +12,10 @@ resolve_session "$input"
 session_id=$(get_state "session_id")
 [[ -z "$session_id" ]] && exit 0
 
+# Close any active turn (team in-progress or orphaned)
+transcript=$(echo "$input" | jq -r '.transcript_path // empty' 2>/dev/null || echo "")
+close_active_turn "$transcript"
+del_state "team_name"
 trace_count=$(get_state "trace_count")
 tool_count=$(get_state "tool_count")
 
