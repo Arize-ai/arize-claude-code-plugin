@@ -20,7 +20,8 @@ trace_count=$(get_state "trace_count")
 
 # Parse transcript for AI response and tokens
 transcript=$(echo "$input" | jq -r '.transcript_path // empty' 2>/dev/null || echo "")
-output="" model="" in_tokens=0 out_tokens=0
+output="" model=""
+in_tokens=0 out_tokens=0 cache_read_tokens=0 cache_creation_tokens=0
 
 if [[ -f "$transcript" ]]; then
   start_line=$(get_state "trace_start_line")
@@ -44,17 +45,18 @@ if [[ -f "$transcript" ]]; then
     val=$(echo "$line" | jq -r '.message.usage.output_tokens // 0' 2>/dev/null)
     [[ "$val" =~ ^[0-9]+$ ]] && out_tokens=$((out_tokens + val))
     val=$(echo "$line" | jq -r '.message.usage.cache_read_input_tokens // 0' 2>/dev/null)
-    [[ "$val" =~ ^[0-9]+$ ]] && in_tokens=$((in_tokens + val))
+    [[ "$val" =~ ^[0-9]+$ ]] && cache_read_tokens=$((cache_read_tokens + val))
     val=$(echo "$line" | jq -r '.message.usage.cache_creation_input_tokens // 0' 2>/dev/null)
-    [[ "$val" =~ ^[0-9]+$ ]] && in_tokens=$((in_tokens + val))
+    [[ "$val" =~ ^[0-9]+$ ]] && cache_creation_tokens=$((cache_creation_tokens + val))
   done < <(tail -n +"$((skip_lines + 1))" "$transcript")
 fi
 
 output=$(printf '%s' "$output" | head -c 5000)
 [[ -z "$output" ]] && output="(No response)"
 
-# Compute total token count
-total_tokens=$((in_tokens + out_tokens))
+# Compute total prompt tokens (all input-side) and overall total
+prompt_tokens=$((in_tokens + cache_read_tokens + cache_creation_tokens))
+total_tokens=$((prompt_tokens + out_tokens))
 
 output_messages=$(jq -nc --arg out "$output" '[{"message.role":"assistant","message.content":$out}]')
 
@@ -64,9 +66,11 @@ attrs=$(jq -nc \
   --arg sid "$session_id" --arg num "$trace_count" --arg proj "$project_name" \
   --arg in "$user_prompt" --arg out "$output" --arg model "$model" \
   --arg uid "$user_id" \
-  --argjson in_tok "$in_tokens" --argjson out_tok "$out_tokens" --argjson total_tok "$total_tokens" \
+  --argjson out_tok "$out_tokens" \
+  --argjson cache_read_tok "$cache_read_tokens" --argjson cache_creation_tok "$cache_creation_tokens" \
+  --argjson prompt_tok "$prompt_tokens" --argjson total_tok "$total_tokens" \
   --argjson out_msgs "$output_messages" \
-  '{"session.id":$sid,"trace.number":$num,"project.name":$proj,"openinference.span.kind":"LLM","llm.model_name":$model,"llm.token_count.prompt":$in_tok,"llm.token_count.completion":$out_tok,"llm.token_count.total":$total_tok,"input.value":$in,"output.value":$out,"llm.output_messages":$out_msgs} + (if $uid != "" then {"user.id":$uid} else {} end)')
+  '{"session.id":$sid,"trace.number":$num,"project.name":$proj,"openinference.span.kind":"LLM","llm.model_name":$model,"llm.token_count.prompt":$prompt_tok,"llm.token_count.completion":$out_tok,"llm.token_count.total":$total_tok,"llm.token_count.prompt_details.cache_read":$cache_read_tok,"llm.token_count.prompt_details.cache_write":$cache_creation_tok,"input.value":$in,"output.value":$out,"llm.output_messages":$out_msgs} + (if $uid != "" then {"user.id":$uid} else {} end)')
 
 span=$(build_span "Turn $trace_count" "LLM" "$trace_span_id" "$trace_id" "" "$trace_start_time" "$(get_timestamp_ms)" "$attrs")
 send_span "$span" || true
