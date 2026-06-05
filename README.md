@@ -118,7 +118,7 @@ await client.close();
 
 The plugin is fully compatible with the Agent SDK with some caveats:
 
-- **TypeScript SDK** — All 9 hooks are supported. Full feature parity with the CLI.
+- **TypeScript SDK** — All 11 hooks are supported. Full feature parity with the CLI.
 - **Python SDK** — `SessionStart`, `SessionEnd`, `Notification`, and `PermissionRequest` hooks are not fired by the Python SDK. The plugin handles this gracefully:
   - Session initialization happens lazily on the first `UserPromptSubmit` if `SessionStart` didn't fire
   - Stale state files are garbage-collected periodically by the `Stop` hook
@@ -132,8 +132,9 @@ Trace your Claude Code sessions to [Arize AX](https://arize.com) or [Phoenix](ht
 
 ## Features
 
-- **9 Hooks** — Most comprehensive tracing coverage available
-  - SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop, SubagentStop, Notification, PermissionRequest, SessionEnd
+- **11 Hooks** — Most comprehensive tracing coverage available
+  - SessionStart, UserPromptSubmit, UserPromptExpansion, PreToolUse, PostToolUse, Stop, SubagentStop, Notification, PermissionRequest, InstructionsLoaded, SessionEnd
+- **Command, Rule & Rule-Read Spans** — captures slash-command/skill invocations (`command: <name>`), CLAUDE.md/rule auto-loads (`rule: <file>`), and reads of rule files (`rule-read: <name>`)
 - **Dual Target Support** — Send traces to Arize AX (cloud) or Phoenix (self-hosted)
 - **OpenInference Format** — Standard span format compatible with any OpenInference tool
 - **Guided Setup Skill** — `/setup-claude-code-tracing` walks you through configuration
@@ -258,12 +259,14 @@ ARIZE_VERBOSE=true claude
 |------|-------------|---------------|-------------|
 | `SessionStart` | Session begins | Session ID, project name, timestamps | CLI, TS |
 | `UserPromptSubmit` | User sends prompt | Trace ID, prompt preview, transcript position | CLI, TS, Python |
-| `PreToolUse` | Before tool executes | Tool ID, start time | CLI, TS, Python |
-| `PostToolUse` | After tool executes | Tool name, input, output, duration, tool-specific metadata | CLI, TS, Python |
+| `UserPromptExpansion` | Slash command / skill expands into a prompt | `command: <name>` span (name, args, source, expansion type), back-dated to invocation time | CLI |
+| `PreToolUse` | Before tool executes | Tool ID, start time; captures read-start for rule-file Reads | CLI, TS, Python |
+| `PostToolUse` | After tool executes | Tool name, input, output, duration; also emits the `command:` span (once/turn) and `rule-read: <name>` for Reads of `**/rules/*.md` | CLI, TS, Python |
 | `Stop` | Claude finishes responding | Model, token counts, input/output text | CLI, TS, Python |
 | `SubagentStop` | Subagent completes | Agent type, model, token counts, output | CLI, TS, Python |
 | `Notification` | System notification | Title, message, notification type | CLI, TS |
 | `PermissionRequest` | Permission requested | Permission type, tool name | CLI, TS |
+| `InstructionsLoaded` | CLAUDE.md / rule file loaded into context | `rule: <file>` span (file path, `memory_type`, `load_reason`) | CLI |
 | `SessionEnd` | Session closes | Trace count, tool count | CLI, TS |
 
 **SDK Support key:** CLI = Claude Code CLI, TS = TypeScript Agent SDK, Python = Python Agent SDK
