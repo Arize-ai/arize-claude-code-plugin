@@ -1,6 +1,6 @@
 {
   "name": "claude-code-tracing",
-  "description": "Automatic tracing of Claude Code sessions to Arize AX or Phoenix with OpenInference spans. Supports 9 hooks for comprehensive observability.",
+  "description": "Automatic tracing of Claude Code sessions to Arize AX or Phoenix with OpenInference spans. Captures sessions, turns, tools, permissions, subagents, slash-command/skill invocations, and instruction/rule loads.",
   "version": "1.0.0",
   "author": {
     "name": "Arize AI",
@@ -38,12 +38,26 @@
         ]
       }
     ],
+    "UserPromptExpansion": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/user_prompt_expansion.sh\""
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "hooks": [
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/pre_tool_use.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/pre_tool_use_rule_read.sh\""
           }
         ]
       }
@@ -54,6 +68,14 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use_command.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use_rule_read.sh\""
           }
         ]
       }
@@ -94,6 +116,16 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/permission_request.sh\""
+          }
+        ]
+      }
+    ],
+    "InstructionsLoaded": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/instructions_loaded.sh\""
           }
         ]
       }

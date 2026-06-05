@@ -118,8 +118,8 @@ send_to_phoenix() {
       context: { trace_id: .traceId, span_id: .spanId },
       parent_id: .parentSpanId,
       span_kind: "CHAIN",
-      start_time: ((.startTimeUnixNano | tonumber) / 1e9 | strftime("%Y-%m-%dT%H:%M:%SZ")),
-      end_time: ((.endTimeUnixNano | tonumber) / 1e9 | strftime("%Y-%m-%dT%H:%M:%SZ")),
+      start_time: ((.startTimeUnixNano | tonumber) as $ns | ($ns / 1e9 | floor) as $s | (($ns / 1e6 - $s * 1000) | floor) as $ms | ($s | strftime("%Y-%m-%dT%H:%M:%S")) + "." + (($ms + 1000) | tostring | .[1:]) + "Z"),
+      end_time: ((.endTimeUnixNano | tonumber) as $ns | ($ns / 1e9 | floor) as $s | (($ns / 1e6 - $s * 1000) | floor) as $ms | ($s | strftime("%Y-%m-%dT%H:%M:%S")) + "." + (($ms + 1000) | tostring | .[1:]) + "Z"),
       status_code: "OK",
       attributes: (reduce .attributes[] as $a ({}; . + {($a.key): ($a.value.stringValue // $a.value.intValue // "")}))
     }]
