@@ -112,17 +112,22 @@ send_to_phoenix() {
   local project="${ARIZE_PROJECT_NAME:-claude-code}"
 
   local payload
-  payload=$(echo "$span_json" | jq '{
-    data: [.resourceSpans[].scopeSpans[].spans[] | {
-      name: .name,
-      context: { trace_id: .traceId, span_id: .spanId },
-      parent_id: .parentSpanId,
-      span_kind: "CHAIN",
-      start_time: ((.startTimeUnixNano | tonumber) / 1e9 | strftime("%Y-%m-%dT%H:%M:%SZ")),
-      end_time: ((.endTimeUnixNano | tonumber) / 1e9 | strftime("%Y-%m-%dT%H:%M:%SZ")),
-      status_code: "OK",
-      attributes: (reduce .attributes[] as $a ({}; . + {($a.key): ($a.value.stringValue // $a.value.intValue // "")}))
-    }]
+  # Derive span_kind from the openinference.span.kind attribute (LLM/tool/chain) instead of
+  # hardcoding "CHAIN". Phoenix only reads llm.token_count.* and computes cost for LLM spans, so a
+  # hardcoded CHAIN kind made every Turn span show 0 tokens.
+  payload=$(printf '%s\n' "$span_json" | jq '{
+    data: [.resourceSpans[].scopeSpans[].spans[]
+      | (reduce .attributes[] as $a ({}; . + {($a.key): ($a.value.stringValue // $a.value.intValue // $a.value.doubleValue // "")})) as $attrs
+      | {
+          name: .name,
+          context: { trace_id: .traceId, span_id: .spanId },
+          parent_id: .parentSpanId,
+          span_kind: (($attrs["openinference.span.kind"] // "CHAIN") | ascii_upcase),
+          start_time: ((.startTimeUnixNano | tonumber) / 1e9 | strftime("%Y-%m-%dT%H:%M:%SZ")),
+          end_time: ((.endTimeUnixNano | tonumber) / 1e9 | strftime("%Y-%m-%dT%H:%M:%SZ")),
+          status_code: "OK",
+          attributes: $attrs
+        }]
   }')
 
   # Build curl command with optional Authorization header
@@ -167,7 +172,7 @@ send_to_arize() {
 
   local stderr_tmp
   stderr_tmp=$(mktemp)
-  if echo "$span_json" | "$py" "$script" 2>"$stderr_tmp"; then
+  if printf '%s\n' "$span_json" | "$py" "$script" 2>"$stderr_tmp"; then
     _log_to_file "DEBUG send_to_arize succeeded"
     rm -f "$stderr_tmp"
   else
@@ -185,11 +190,11 @@ send_span() {
 
   if [[ "$ARIZE_DRY_RUN" == "true" ]]; then
     log_always "DRY RUN:"
-    echo "$span_json" | jq -c '.resourceSpans[].scopeSpans[].spans[].name' >&2
+    printf '%s\n' "$span_json" | jq -c '.resourceSpans[].scopeSpans[].spans[].name' >&2
     return 0
   fi
 
-  [[ "$ARIZE_VERBOSE" == "true" ]] && echo "$span_json" | jq -c . >&2
+  [[ "$ARIZE_VERBOSE" == "true" ]] && printf '%s\n' "$span_json" | jq -c . >&2
 
   case "$target" in
     phoenix) send_to_phoenix "$span_json" ;;
@@ -198,7 +203,7 @@ send_span() {
   esac
 
   local span_name
-  span_name=$(echo "$span_json" | jq -r '.resourceSpans[0].scopeSpans[0].spans[0].name // "unknown"' 2>/dev/null)
+  span_name=$(printf '%s\n' "$span_json" | jq -r '.resourceSpans[0].scopeSpans[0].spans[0].name // "unknown"' 2>/dev/null)
   log "Sent span: $span_name ($target)"
 }
 
@@ -218,7 +223,7 @@ build_span() {
   "traceId":"$trace_id","spanId":"$span_id",$parent_json
   "name":"$name","kind":1,
   "startTimeUnixNano":"${start}000000","endTimeUnixNano":"${end}000000",
-  "attributes":$(echo "$attrs" | jq -c '[to_entries[]|{"key":.key,"value":(if (.value|type)=="number" then (if ((.value|floor) == .value) then {"intValue":.value} else {"doubleValue":.value} end) else {"stringValue":(.value|tostring)} end)}]'),
+  "attributes":$(printf '%s\n' "$attrs" | jq -c '[to_entries[]|{"key":.key,"value":(if (.value|type)=="number" then (if ((.value|floor) == .value) then {"intValue":.value} else {"doubleValue":.value} end) else {"stringValue":(.value|tostring)} end)}]'),
   "status":{"code":1}
 }]}]}]}
 EOF
@@ -231,7 +236,7 @@ EOF
 resolve_session() {
   local input="${1:-'{}'}"
   local sid
-  sid=$(echo "$input" | jq -r '.session_id // empty' 2>/dev/null || echo "")
+  sid=$(printf '%s\n' "$input" | jq -r '.session_id // empty' 2>/dev/null || echo "")
 
   if [[ -n "$sid" ]]; then
     _SESSION_KEY="$sid"
@@ -261,13 +266,13 @@ ensure_session_initialized() {
   fi
 
   local session_id
-  session_id=$(echo "$input" | jq -r '.session_id // empty' 2>/dev/null || echo "")
+  session_id=$(printf '%s\n' "$input" | jq -r '.session_id // empty' 2>/dev/null || echo "")
   [[ -z "$session_id" ]] && session_id=$(generate_uuid)
 
   local project_name="${ARIZE_PROJECT_NAME:-}"
   if [[ -z "$project_name" ]]; then
     local cwd
-    cwd=$(echo "$input" | jq -r '.cwd // empty' 2>/dev/null || echo "")
+    cwd=$(printf '%s\n' "$input" | jq -r '.cwd // empty' 2>/dev/null || echo "")
     project_name=$(basename "${cwd:-$(pwd)}")
   fi
 
@@ -280,7 +285,7 @@ ensure_session_initialized() {
   # Store user ID if provided via env var or hook input
   local user_id="${ARIZE_USER_ID:-}"
   if [[ -z "$user_id" ]]; then
-    user_id=$(echo "$input" | jq -r '.user_id // empty' 2>/dev/null || echo "")
+    user_id=$(printf '%s\n' "$input" | jq -r '.user_id // empty' 2>/dev/null || echo "")
   fi
   [[ -n "$user_id" ]] && set_state "user_id" "$user_id"
 

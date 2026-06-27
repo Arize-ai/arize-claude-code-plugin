@@ -8,14 +8,14 @@ input=$(cat 2>/dev/null || echo '{}')
 
 resolve_session "$input"
 
-_log_to_file "DEBUG permission_request input: $(echo "$input" | jq -c .)"
+_log_to_file "DEBUG permission_request input: $(printf '%s\n' "$input" | jq -c .)"
 
 trace_id=$(get_state "current_trace_id")
 [[ -z "$trace_id" ]] && exit 0
 
-permission=$(echo "$input" | jq -r '.permission // empty' 2>/dev/null || echo "")
-tool=$(echo "$input" | jq -r '.tool_name // empty' 2>/dev/null || echo "")
-tool_input=$(echo "$input" | jq -c '.tool_input // empty' 2>/dev/null || echo "")
+permission=$(printf '%s\n' "$input" | jq -r '.permission // empty' 2>/dev/null || echo "")
+tool=$(printf '%s\n' "$input" | jq -r '.tool_name // empty' 2>/dev/null || echo "")
+tool_input=$(printf '%s\n' "$input" | jq -c '.tool_input // empty' 2>/dev/null || echo "")
 
 span_id=$(generate_uuid | tr -d '-' | cut -c1-16)
 ts=$(get_timestamp_ms)

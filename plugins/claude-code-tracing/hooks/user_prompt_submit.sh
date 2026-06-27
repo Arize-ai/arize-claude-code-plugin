@@ -47,10 +47,10 @@ inc_state "trace_count"
 set_state "current_trace_id" "$(generate_uuid | tr -d '-')"
 set_state "current_trace_span_id" "$(generate_uuid | tr -d '-' | cut -c1-16)"
 set_state "current_trace_start_time" "$(get_timestamp_ms)"
-set_state "current_trace_prompt" "$(echo "$input" | jq -r '.prompt // empty' 2>/dev/null | head -c 1000)"
+set_state "current_trace_prompt" "$(printf '%s\n' "$input" | jq -r '.prompt // empty' 2>/dev/null | head -c 1000)"
 
 # Track transcript position for parsing AI response later
-transcript=$(echo "$input" | jq -r '.transcript_path // empty' 2>/dev/null || echo "")
+transcript=$(printf '%s\n' "$input" | jq -r '.transcript_path // empty' 2>/dev/null || echo "")
 if [[ -n "$transcript" && -f "$transcript" ]]; then
   set_state "trace_start_line" "$(wc -l < "$transcript" | tr -d ' ')"
 else
