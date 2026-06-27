@@ -15,17 +15,17 @@ trace_id=$(get_state "current_trace_id")
 parent_span_id=$(get_state "current_trace_span_id")
 inc_state "tool_count"
 
-tool_name=$(echo "$input" | jq -r '.tool_name // "unknown"' 2>/dev/null || echo "unknown")
-tool_id=$(echo "$input" | jq -r '.tool_use_id // empty' 2>/dev/null || echo "")
-tool_input_raw=$(echo "$input" | jq -c '.tool_input // {}' 2>/dev/null || echo '{}')
-tool_input=$(echo "$tool_input_raw" | head -c 5000)
-tool_response=$(echo "$input" | jq -r '.tool_response // empty' 2>/dev/null | head -c 5000) || true
+tool_name=$(printf '%s\n' "$input" | jq -r '.tool_name // "unknown"' 2>/dev/null || echo "unknown")
+tool_id=$(printf '%s\n' "$input" | jq -r '.tool_use_id // empty' 2>/dev/null || echo "")
+tool_input_raw=$(printf '%s\n' "$input" | jq -c '.tool_input // {}' 2>/dev/null || echo '{}')
+tool_input=$(printf '%s\n' "$tool_input_raw" | head -c 5000)
+tool_response=$(printf '%s\n' "$input" | jq -r '.tool_response // empty' 2>/dev/null | head -c 5000) || true
 
 # Track whether content was truncated
 tool_input_truncated="false"
 tool_response_truncated="false"
 [[ ${#tool_input_raw} -gt 5000 ]] && tool_input_truncated="true"
-raw_response=$(echo "$input" | jq -r '.tool_response // empty' 2>/dev/null || echo "")
+raw_response=$(printf '%s\n' "$input" | jq -r '.tool_response // empty' 2>/dev/null || echo "")
 [[ ${#raw_response} -gt 5000 ]] && tool_response_truncated="true"
 truncated="false"
 [[ "$tool_input_truncated" == "true" || "$tool_response_truncated" == "true" ]] && truncated="true"
@@ -39,28 +39,28 @@ tool_query=""
 
 case "$tool_name" in
   Bash)
-    tool_command=$(echo "$tool_input_raw" | jq -r '.command // empty' 2>/dev/null || echo "")
-    tool_description=$(echo "$tool_command" | head -c 200)
+    tool_command=$(printf '%s\n' "$tool_input_raw" | jq -r '.command // empty' 2>/dev/null || echo "")
+    tool_description=$(printf '%s\n' "$tool_command" | head -c 200)
     ;;
   Read|Write|Edit|Glob)
-    tool_file_path=$(echo "$tool_input_raw" | jq -r '.file_path // .pattern // empty' 2>/dev/null || echo "")
-    tool_description=$(echo "$tool_file_path" | head -c 200)
+    tool_file_path=$(printf '%s\n' "$tool_input_raw" | jq -r '.file_path // .pattern // empty' 2>/dev/null || echo "")
+    tool_description=$(printf '%s\n' "$tool_file_path" | head -c 200)
     ;;
   WebSearch)
-    tool_query=$(echo "$tool_input_raw" | jq -r '.query // empty' 2>/dev/null || echo "")
-    tool_description=$(echo "$tool_query" | head -c 200)
+    tool_query=$(printf '%s\n' "$tool_input_raw" | jq -r '.query // empty' 2>/dev/null || echo "")
+    tool_description=$(printf '%s\n' "$tool_query" | head -c 200)
     ;;
   WebFetch)
-    tool_url=$(echo "$tool_input_raw" | jq -r '.url // empty' 2>/dev/null || echo "")
-    tool_description=$(echo "$tool_url" | head -c 200)
+    tool_url=$(printf '%s\n' "$tool_input_raw" | jq -r '.url // empty' 2>/dev/null || echo "")
+    tool_description=$(printf '%s\n' "$tool_url" | head -c 200)
     ;;
   Grep)
-    tool_query=$(echo "$tool_input_raw" | jq -r '.pattern // empty' 2>/dev/null || echo "")
-    tool_file_path=$(echo "$tool_input_raw" | jq -r '.path // empty' 2>/dev/null || echo "")
-    tool_description="grep: $(echo "$tool_query" | head -c 100)"
+    tool_query=$(printf '%s\n' "$tool_input_raw" | jq -r '.pattern // empty' 2>/dev/null || echo "")
+    tool_file_path=$(printf '%s\n' "$tool_input_raw" | jq -r '.path // empty' 2>/dev/null || echo "")
+    tool_description="grep: $(printf '%s\n' "$tool_query" | head -c 100)"
     ;;
   *)
-    tool_description=$(echo "$tool_input" | head -c 200)
+    tool_description=$(printf '%s\n' "$tool_input" | head -c 200)
     ;;
 esac
 
@@ -82,10 +82,10 @@ attrs=$(jq -n \
   '{"session.id":$sid,"openinference.span.kind":"tool","tool.name":$tool,"input.value":$in,"output.value":$out,"tool.description":$desc,"tool.truncated":$trunc} + (if $uid != "" then {"user.id":$uid} else {} end)')
 
 # Add tool-specific structured attributes
-[[ -n "$tool_command" ]] && attrs=$(echo "$attrs" | jq --arg v "$tool_command" '. + {"tool.command":$v}')
-[[ -n "$tool_file_path" ]] && attrs=$(echo "$attrs" | jq --arg v "$tool_file_path" '. + {"tool.file_path":$v}')
-[[ -n "$tool_url" ]] && attrs=$(echo "$attrs" | jq --arg v "$tool_url" '. + {"tool.url":$v}')
-[[ -n "$tool_query" ]] && attrs=$(echo "$attrs" | jq --arg v "$tool_query" '. + {"tool.query":$v}')
+[[ -n "$tool_command" ]] && attrs=$(printf '%s\n' "$attrs" | jq --arg v "$tool_command" '. + {"tool.command":$v}')
+[[ -n "$tool_file_path" ]] && attrs=$(printf '%s\n' "$attrs" | jq --arg v "$tool_file_path" '. + {"tool.file_path":$v}')
+[[ -n "$tool_url" ]] && attrs=$(printf '%s\n' "$attrs" | jq --arg v "$tool_url" '. + {"tool.url":$v}')
+[[ -n "$tool_query" ]] && attrs=$(printf '%s\n' "$attrs" | jq --arg v "$tool_query" '. + {"tool.query":$v}')
 
 span=$(build_span "$tool_name" "TOOL" "$span_id" "$trace_id" "$parent_span_id" "$start_time" "$end_time" "$attrs")
 send_span "$span" || true

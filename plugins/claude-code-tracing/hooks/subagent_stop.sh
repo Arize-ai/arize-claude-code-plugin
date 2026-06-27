@@ -12,8 +12,8 @@ trace_id=$(get_state "current_trace_id")
 [[ -z "$trace_id" ]] && exit 0
 
 session_id=$(get_state "session_id")
-agent_id=$(echo "$input" | jq -r '.agent_id // empty' 2>/dev/null || echo "")
-agent_type=$(echo "$input" | jq -r '.agent_type // empty' 2>/dev/null || echo "")
+agent_id=$(printf '%s\n' "$input" | jq -r '.agent_id // empty' 2>/dev/null || echo "")
+agent_type=$(printf '%s\n' "$input" | jq -r '.agent_type // empty' 2>/dev/null || echo "")
 
 # Guard: skip span creation for empty/unknown agent types
 if [[ -z "$agent_type" || "$agent_type" == "unknown" || "$agent_type" == "null" ]]; then
@@ -26,10 +26,10 @@ end_time=$(get_timestamp_ms)
 parent=$(get_state "current_trace_span_id")
 
 # Try to parse subagent transcript for output
-transcript_path=$(echo "$input" | jq -r '.agent_transcript_path // empty' 2>/dev/null || echo "")
+transcript_path=$(printf '%s\n' "$input" | jq -r '.agent_transcript_path // empty' 2>/dev/null || echo "")
 subagent_output=""
 start_time=""
-model="" in_tokens=0 out_tokens=0
+model="" in_tokens=0 out_tokens=0 cache_read=0 cache_write=0
 
 if [[ -n "$transcript_path" && -f "$transcript_path" ]]; then
   # Use file birth time (creation time) for start estimate
@@ -48,25 +48,25 @@ if [[ -n "$transcript_path" && -f "$transcript_path" ]]; then
   # Parse subagent transcript for output and token usage
   while IFS= read -r line; do
     [[ -z "$line" ]] && continue
-    [[ $(echo "$line" | jq -r '.type' 2>/dev/null) == "assistant" ]] || continue
+    [[ $(printf '%s\n' "$line" | jq -r '.type' 2>/dev/null) == "assistant" ]] || continue
 
     # Extract last assistant message as output
-    text=$(echo "$line" | jq -r '.message.content | if type=="array" then [.[]|select(.type=="text")|.text]|join("\n") else . end' 2>/dev/null)
+    text=$(printf '%s\n' "$line" | jq -r '.message.content | if type=="array" then [.[]|select(.type=="text")|.text]|join("\n") else . end' 2>/dev/null)
     [[ -n "$text" && "$text" != "null" ]] && subagent_output="$text"
 
     # Accumulate token counts
-    model=$(echo "$line" | jq -r '.message.model // empty' 2>/dev/null)
-    val=$(echo "$line" | jq -r '.message.usage.input_tokens // 0' 2>/dev/null)
+    model=$(printf '%s\n' "$line" | jq -r '.message.model // empty' 2>/dev/null)
+    val=$(printf '%s\n' "$line" | jq -r '.message.usage.input_tokens // 0' 2>/dev/null)
     [[ "$val" =~ ^[0-9]+$ ]] && in_tokens=$((in_tokens + val))
-    val=$(echo "$line" | jq -r '.message.usage.output_tokens // 0' 2>/dev/null)
+    val=$(printf '%s\n' "$line" | jq -r '.message.usage.output_tokens // 0' 2>/dev/null)
     [[ "$val" =~ ^[0-9]+$ ]] && out_tokens=$((out_tokens + val))
-    val=$(echo "$line" | jq -r '.message.usage.cache_read_input_tokens // 0' 2>/dev/null)
-    [[ "$val" =~ ^[0-9]+$ ]] && in_tokens=$((in_tokens + val))
-    val=$(echo "$line" | jq -r '.message.usage.cache_creation_input_tokens // 0' 2>/dev/null)
-    [[ "$val" =~ ^[0-9]+$ ]] && in_tokens=$((in_tokens + val))
+    val=$(printf '%s\n' "$line" | jq -r '.message.usage.cache_read_input_tokens // 0' 2>/dev/null)
+    [[ "$val" =~ ^[0-9]+$ ]] && { in_tokens=$((in_tokens + val)); cache_read=$((cache_read + val)); }
+    val=$(printf '%s\n' "$line" | jq -r '.message.usage.cache_creation_input_tokens // 0' 2>/dev/null)
+    [[ "$val" =~ ^[0-9]+$ ]] && { in_tokens=$((in_tokens + val)); cache_write=$((cache_write + val)); }
   done < "$transcript_path"
 
-  subagent_output=$(echo "$subagent_output" | head -c 5000)
+  subagent_output=$(printf '%s\n' "$subagent_output" | head -c 5000)
 fi
 
 # Fall back to current time if no start time found
@@ -84,7 +84,8 @@ attrs=$(jq -nc \
   --arg model "$model" \
   --arg uid "$user_id" \
   --argjson in_tok "$in_tokens" --argjson out_tok "$out_tokens" --argjson total_tok "$total_tokens" \
-  '{"session.id":$sid,"openinference.span.kind":"chain","subagent.id":$agent_id,"subagent.type":$agent_type,"llm.model_name":$model,"llm.token_count.prompt":$in_tok,"llm.token_count.completion":$out_tok,"llm.token_count.total":$total_tok} + (if $output != "" then {"output.value":$output} else {} end) + (if $uid != "" then {"user.id":$uid} else {} end)')
+  --argjson cache_read "$cache_read" --argjson cache_write "$cache_write" \
+  '{"session.id":$sid,"openinference.span.kind":"chain","subagent.id":$agent_id,"subagent.type":$agent_type,"llm.model_name":$model,"llm.token_count.prompt":$in_tok,"llm.token_count.completion":$out_tok,"llm.token_count.total":$total_tok,"llm.token_count.prompt_details.cache_read":$cache_read,"llm.token_count.prompt_details.cache_write":$cache_write} + (if $output != "" then {"output.value":$output} else {} end) + (if $uid != "" then {"user.id":$uid} else {} end)')
 
 span=$(build_span "Subagent: $agent_type" "CHAIN" "$span_id" "$trace_id" "$parent" "$start_time" "$end_time" "$attrs")
 send_span "$span" || true
