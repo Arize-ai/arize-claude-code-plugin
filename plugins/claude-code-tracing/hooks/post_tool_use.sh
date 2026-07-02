@@ -12,6 +12,10 @@ session_id=$(get_state "session_id")
 [[ -z "$session_id" ]] && exit 0
 
 trace_id=$(get_state "current_trace_id")
+# Skip if no active trace — a tool running before/between turns has an empty
+# trace_id, which Arize rejects ("span trace ID cannot be empty") and drops the span.
+# Matches the guard in notification/permission_request/subagent_stop/stop hooks.
+[[ -z "$trace_id" ]] && exit 0
 parent_span_id=$(get_state "current_trace_span_id")
 inc_state "tool_count"
 
